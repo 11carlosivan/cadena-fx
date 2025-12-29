@@ -4,7 +4,9 @@ import Layout from './components/Layout';
 import Home from './pages/Home';
 import SetupDetail from './pages/SetupDetail';
 import CreateSetup from './pages/CreateSetup';
+import ProfilePage from './pages/ProfilePage';
 import AuthModal from './components/AuthModal';
+import OnboardingTutorial, { TutorialStep } from './components/OnboardingTutorial';
 import { Setup, User } from './types';
 import { MOCK_SETUPS } from './constants';
 
@@ -13,8 +15,42 @@ const App: React.FC = () => {
   const [selectedSetup, setSelectedSetup] = useState<Setup | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [communitySetups, setCommunitySetups] = useState<Setup[]>(MOCK_SETUPS);
   const [savedSetups, setSavedSetups] = useState<Setup[]>([]);
   const [notification, setNotification] = useState<{ msg: string; type: 'success' | 'info' } | null>(null);
+  const [isNewUser, setIsNewUser] = useState(false);
+
+  // Tutorial State
+  const [isTutorialOpen, setIsTutorialOpen] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+
+  const tutorialSteps: TutorialStep[] = [
+    {
+      targetId: 'explore-nav',
+      title: 'Legendary Library',
+      content: 'Explore thousands of tones created by artists and enthusiasts around the globe. Find your next signature sound.',
+      position: 'bottom'
+    },
+    {
+      targetId: 'new-setup-btn',
+      title: 'Craft Your Chain',
+      content: 'Ready to build? Start a new setup to design your custom signal chain from scratch.',
+      position: 'bottom'
+    },
+    {
+      targetId: 'profile-nav',
+      title: 'Musician Identity',
+      content: 'Manage your rig collection, badges, and professional profile here. Show off your gear DNA.',
+      position: 'left'
+    }
+  ];
+
+  useEffect(() => {
+    const hasSeenTutorial = localStorage.getItem('toneshare_onboarded');
+    if (!hasSeenTutorial && user) {
+      setTimeout(() => setIsTutorialOpen(true), 1500);
+    }
+  }, [user]);
 
   const showNotification = (msg: string, type: 'success' | 'info' = 'info') => {
     setNotification({ msg, type });
@@ -30,34 +66,40 @@ const App: React.FC = () => {
   };
 
   const handleTabChange = (tab: string) => {
-    if ((tab === 'create' || tab === 'my setups') && !user) {
+    if ((tab === 'create' || tab === 'my setups' || tab === 'profile') && !user) {
       setIsAuthModalOpen(true);
       return;
     }
     setActiveTab(tab);
     setSelectedSetup(null);
+    setIsNewUser(false);
   };
 
-  const handleLogin = (userData: User, welcomeMsg: string) => {
+  const handleLogin = (userData: User, welcomeMsg: string, isRegistration: boolean) => {
     setUser(userData);
     showNotification(welcomeMsg, 'success');
+    if (isRegistration) {
+      setIsNewUser(true);
+      setActiveTab('profile');
+    }
   };
 
-  const handleLogout = () => {
-    setUser(null);
+  const handleSkipTutorial = () => {
+    setIsTutorialOpen(false);
+    localStorage.setItem('toneshare_onboarded', 'true');
+  };
+
+  const handleUpdateProfile = (updatedUser: User) => {
+    setUser(updatedUser);
+    showNotification("Profile updated successfully", "success");
+    setIsNewUser(false);
+  };
+
+  const handlePublishSetup = (newSetup: Setup) => {
+    setCommunitySetups(prev => [newSetup, ...prev]);
+    setSavedSetups(prev => [newSetup, ...prev]);
     setActiveTab('explore');
-    showNotification('Logged out successfully');
-  };
-
-  const handleSaveSetup = (setup: Setup) => {
-    handleAction(() => {
-      if (savedSetups.find(s => s.id === setup.id)) {
-        showNotification(`"${setup.title}" is already in your library.`);
-        return;
-      }
-      setSavedSetups(prev => [...prev, setup]);
-      showNotification(`Tone "${setup.title}" saved!`, 'success');
-    });
+    showNotification("Rig published to community!", "success");
   };
 
   const renderSetupGrid = (setups: Setup[]) => (
@@ -65,10 +107,9 @@ const App: React.FC = () => {
       {setups.map((setup) => (
         <div 
           key={setup.id}
-          onClick={() => { setSelectedSetup(setup); setActiveTab('detail'); }}
           className="group flex flex-col bg-surface-dark border border-border-dark rounded-2xl overflow-hidden hover:border-primary/50 hover:shadow-2xl hover:shadow-primary/5 transition-all cursor-pointer"
         >
-          <div className="relative aspect-[4/3] overflow-hidden">
+          <div className="relative aspect-[4/3] overflow-hidden" onClick={() => { setSelectedSetup(setup); setActiveTab('detail'); }}>
             <img src={setup.coverImage} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt={setup.title} />
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
             <div className="absolute bottom-3 left-3">
@@ -78,13 +119,16 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="p-4 flex flex-col gap-1">
-            <h3 className="font-bold group-hover:text-primary transition-colors truncate">{setup.title}</h3>
+            <h3 className="font-bold group-hover:text-primary transition-colors truncate" onClick={() => { setSelectedSetup(setup); setActiveTab('detail'); }}>{setup.title}</h3>
             <p className="text-xs text-text-secondary truncate">{setup.artist}</p>
             <div className="mt-4 pt-3 border-t border-border-dark flex items-center justify-between text-text-secondary">
-              <div className="flex items-center gap-2">
-                <div className="size-5 rounded-full bg-cover bg-center" style={{ backgroundImage: `url(${setup.creatorAvatar})` }} />
+              <button 
+                onClick={(e) => { e.stopPropagation(); handleTabChange('profile'); }}
+                className="flex items-center gap-2 group/creator hover:text-white transition-colors"
+              >
+                <div className="size-5 rounded-full bg-cover bg-center ring-1 ring-border-dark group-hover/creator:ring-primary transition-all" style={{ backgroundImage: `url(${setup.creatorAvatar})` }} />
                 <span className="text-[10px] font-medium">{setup.creator}</span>
-              </div>
+              </button>
               <div className="flex items-center gap-1 text-[10px] font-bold">
                 <span className="material-symbols-outlined !text-[14px]">favorite</span>
                 {setup.likes}
@@ -105,6 +149,7 @@ const App: React.FC = () => {
           onClone={() => handleAction(() => showNotification("Setup cloned to your library!"))}
           onFavorite={() => handleAction(() => showNotification("Added to favorites"))}
           onComment={(text) => handleAction(() => showNotification("Comment posted!"))}
+          onProfileClick={() => handleTabChange('profile')}
         />
       );
     }
@@ -114,9 +159,15 @@ const App: React.FC = () => {
       case 'explore':
         return (
           <Home 
+            setups={communitySetups}
             onSetupSelect={(s) => { setSelectedSetup(s); setActiveTab('detail'); }}
-            onSaveSetup={handleSaveSetup}
-            onShareRig={() => handleAction(() => showNotification("Rig shared with the community!"))}
+            onSaveSetup={(setup) => handleAction(() => {
+              if (savedSetups.find(s => s.id === setup.id)) return;
+              setSavedSetups(prev => [...prev, setup]);
+              showNotification(`Tone "${setup.title}" saved!`, 'success');
+            })}
+            onShareRig={() => handleAction(() => setActiveTab('create'))}
+            onProfileClick={() => handleTabChange('profile')}
           />
         );
       case 'my setups':
@@ -149,35 +200,20 @@ const App: React.FC = () => {
                 <p className="text-text-secondary text-sm">What's currently blowing the roof off in the ToneShare world.</p>
               </div>
             </div>
-            {renderSetupGrid(MOCK_SETUPS)}
+            {renderSetupGrid(communitySetups)}
           </div>
         );
       case 'create':
-        return <CreateSetup />;
+        return <CreateSetup onPublish={handlePublishSetup} user={user!} onProfileClick={() => handleTabChange('profile')} />;
       case 'profile':
-        return (
-          <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-6 text-center animate-in fade-in duration-500">
-            <div className="size-32 rounded-full bg-cover bg-center border-4 border-primary shadow-2xl" style={{ backgroundImage: `url(${user?.avatar})` }} />
-            <div>
-              <h1 className="text-3xl font-bold">{user?.name}</h1>
-              <p className="text-text-secondary">{user?.bio}</p>
-            </div>
-            <div className="flex gap-4">
-              <div className="bg-surface-dark border border-border-dark p-6 rounded-2xl w-32">
-                <p className="text-2xl font-bold">{savedSetups.length}</p>
-                <p className="text-xs text-text-secondary font-bold uppercase tracking-widest">Saved</p>
-              </div>
-              <div className="bg-surface-dark border border-border-dark p-6 rounded-2xl w-32">
-                <p className="text-2xl font-bold text-primary">850</p>
-                <p className="text-xs text-text-secondary font-bold uppercase tracking-widest">Likes</p>
-              </div>
-            </div>
-            <div className="flex gap-4">
-              <button className="px-8 py-3 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition-all">Edit Settings</button>
-              <button onClick={handleLogout} className="px-8 py-3 bg-red-500/10 text-red-500 border border-red-500/20 font-bold rounded-xl hover:bg-red-500/20 transition-all">Logout</button>
-            </div>
-          </div>
-        );
+        return user ? (
+          <ProfilePage 
+            user={user} 
+            savedSetups={savedSetups} 
+            onUpdateUser={handleUpdateProfile}
+            initialEditMode={isNewUser}
+          />
+        ) : null;
       default:
         return (
           <div className="flex items-center justify-center min-h-[60vh]">
@@ -191,11 +227,6 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSetupSelect = (setup: Setup) => {
-    setSelectedSetup(setup);
-    setActiveTab('detail');
-  };
-
   return (
     <>
       <Layout activeTab={activeTab} onTabChange={handleTabChange} user={user} onLoginClick={() => setIsAuthModalOpen(true)}>
@@ -203,7 +234,15 @@ const App: React.FC = () => {
       </Layout>
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} onLogin={handleLogin} />
       
-      {/* Sistema de Notificaciones Toast */}
+      <OnboardingTutorial 
+        isOpen={isTutorialOpen}
+        steps={tutorialSteps}
+        activeStep={tutorialStep}
+        onNext={() => setTutorialStep(prev => prev + 1)}
+        onPrev={() => setTutorialStep(prev => prev - 1)}
+        onSkip={handleSkipTutorial}
+      />
+
       {notification && (
         <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[200] animate-in slide-in-from-bottom-5 duration-300">
           <div className={`px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 backdrop-blur-md border ${

@@ -7,7 +7,15 @@ export interface User {
   id: string;
   name: string;
   avatar: string;
+  banner?: string;
   bio: string;
+  location?: string;
+  experience?: string;
+  genres?: string[];
+  website?: string;
+  youtube?: string;
+  instagram?: string;
+  topGear?: string[];
 }
 
 export interface Pedal {
@@ -30,6 +38,10 @@ export interface Amplifier {
   settings: Record<string, number>;
   notes?: string;
   isBypassed?: boolean;
+  channels?: string[];
+  activeChannel?: string;
+  variants?: string[];
+  activeVariant?: string;
 }
 
 export interface Setup {

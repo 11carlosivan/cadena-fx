@@ -16,35 +16,55 @@ export const MOCK_AMPLIFIERS: Amplifier[] = [
     name: 'JCM800', 
     brand: 'Marshall', 
     color: 'from-yellow-700 to-amber-900', 
-    settings: { Preamp: 70, Master: 40, Bass: 50, Middle: 60, Treble: 70, Presence: 40 } 
+    settings: { Preamp: 70, Master: 40, Bass: 50, Middle: 60, Treble: 70, Presence: 40 },
+    channels: ['Low Sensitivity', 'High Sensitivity'],
+    activeChannel: 'High Sensitivity',
+    variants: ['Standard 2203', 'Silver Jubilee', '1959HW Plexi'],
+    activeVariant: 'Standard 2203'
   },
   { 
     id: 'amp-2', 
     name: 'Twin Reverb', 
     brand: 'Fender', 
     color: 'from-gray-300 to-gray-500', 
-    settings: { Volume: 40, Treble: 60, Middle: 50, Bass: 40, Reverb: 30, Speed: 20 } 
+    settings: { Volume: 40, Treble: 60, Middle: 50, Bass: 40, Reverb: 30, Speed: 20 },
+    channels: ['Normal', 'Vibrato'],
+    activeChannel: 'Normal',
+    variants: ['65 Reissue', 'Custom 68', 'Tone Master'],
+    activeVariant: '65 Reissue'
   },
   { 
     id: 'amp-3', 
     name: 'AC30 Top Boost', 
     brand: 'Vox', 
     color: 'from-red-800 to-stone-900', 
-    settings: { Volume: 50, Treble: 75, Bass: 45, Cut: 30, Gain: 60 } 
+    settings: { Volume: 50, Treble: 75, Bass: 45, Cut: 30, Gain: 60 },
+    channels: ['Normal', 'Brilliant'],
+    activeChannel: 'Brilliant',
+    variants: ['C2 Standard', 'HW Hand-Wired'],
+    activeVariant: 'C2 Standard'
   },
   { 
     id: 'amp-4', 
     name: 'Dual Rectifier', 
     brand: 'Mesa Boogie', 
     color: 'from-zinc-700 to-zinc-900', 
-    settings: { Gain: 85, Treble: 60, Mid: 40, Bass: 70, Presence: 50, Master: 30 } 
+    settings: { Gain: 85, Treble: 60, Mid: 40, Bass: 70, Presence: 50, Master: 30 },
+    channels: ['Clean', 'Raw', 'Vintage', 'Modern'],
+    activeChannel: 'Modern',
+    variants: ['Multi-Watt', 'Solo Head', 'Triple Rec'],
+    activeVariant: 'Multi-Watt'
   },
   { 
     id: 'amp-5', 
     name: 'Rockerverb', 
     brand: 'Orange', 
     color: 'from-orange-500 to-orange-700', 
-    settings: { Gain: 65, Bass: 55, Mid: 50, Treble: 60, Reverb: 40 } 
+    settings: { Gain: 65, Bass: 55, Mid: 50, Treble: 60, Reverb: 40 },
+    channels: ['Clean', 'Dirty'],
+    activeChannel: 'Dirty',
+    variants: ['MKIII', 'MKII', '50W Neo'],
+    activeVariant: 'MKIII'
   },
 ];
 

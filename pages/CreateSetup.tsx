@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { MOCK_PEDALS, MOCK_AMPLIFIERS } from '../constants';
-import { Pedal, PedalType, Instrument, Amplifier } from '../types';
+import { Pedal, PedalType, Instrument, Amplifier, User, Setup } from '../types';
 import PedalNode from '../components/PedalNode';
 import { GoogleGenAI } from "@google/genai";
 
@@ -16,6 +16,14 @@ interface KnobProps {
   onChange: (newValue: number) => void;
   color?: string;
 }
+
+const EQ_PRESETS: Record<string, Record<string, number>> = {
+  'Neutral': { 'Bass': 50, 'Mid': 50, 'Middle': 50, 'Treble': 50, 'Presence': 50, 'Cut': 50 },
+  'Warm': { 'Bass': 75, 'Mid': 60, 'Middle': 60, 'Treble': 35, 'Presence': 25, 'Cut': 60 },
+  'Bright': { 'Bass': 30, 'Mid': 45, 'Middle': 45, 'Treble': 85, 'Presence': 80, 'Cut': 15 },
+  'Scooped': { 'Bass': 80, 'Mid': 15, 'Middle': 15, 'Treble': 80, 'Presence': 60, 'Cut': 40 },
+  'Vintage': { 'Bass': 65, 'Mid': 70, 'Middle': 70, 'Treble': 40, 'Presence': 30, 'Cut': 55 }
+};
 
 const Knob: React.FC<KnobProps> = ({ label, value, onChange, color = 'primary' }) => {
   const [isDragging, setIsDragging] = useState(false);
@@ -57,20 +65,9 @@ const Knob: React.FC<KnobProps> = ({ label, value, onChange, color = 'primary' }
 
   return (
     <div className="flex flex-col items-center gap-3 group select-none">
-      <div 
-        className="relative size-16 cursor-ns-resize"
-        onMouseDown={handleMouseDown}
-      >
+      <div className="relative size-16 cursor-ns-resize" onMouseDown={handleMouseDown}>
         <svg className="absolute inset-0 size-full -rotate-90 transform" viewBox="0 0 100 100">
-          <circle
-            cx="50"
-            cy="50"
-            r="45"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="8"
-            className="text-border-dark"
-          />
+          <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor" strokeWidth="8" className="text-border-dark" />
           <circle
             cx="50"
             cy="50"
@@ -84,7 +81,6 @@ const Knob: React.FC<KnobProps> = ({ label, value, onChange, color = 'primary' }
             className="text-primary transition-all duration-100"
           />
         </svg>
-
         <div 
           className="absolute inset-2 rounded-full bg-gradient-to-b from-surface-light to-background-dark shadow-xl flex items-center justify-center border border-white/5"
           style={{ transform: `rotate(${rotation}deg)` }}
@@ -93,7 +89,6 @@ const Knob: React.FC<KnobProps> = ({ label, value, onChange, color = 'primary' }
           <div className="size-6 rounded-full bg-black/40 border border-white/10" />
         </div>
       </div>
-      
       <div className="text-center">
         <p className="text-[10px] font-black uppercase tracking-widest text-text-secondary group-hover:text-white transition-colors">{label}</p>
         <p className="text-[10px] font-mono text-primary font-bold mt-0.5">{value}%</p>
@@ -102,65 +97,87 @@ const Knob: React.FC<KnobProps> = ({ label, value, onChange, color = 'primary' }
   );
 };
 
-const EqualizerSlider: React.FC<{ label: string; value: number; onChange: (v: number) => void }> = ({ label, value, onChange }) => (
-  <div className="flex flex-col gap-2 group select-none">
-    <div className="flex justify-between items-center px-1">
-      <label className="text-[9px] font-black uppercase tracking-[0.15em] text-text-secondary group-hover:text-white transition-colors">{label}</label>
-      <span className="text-[9px] font-mono text-primary/70 font-bold">{value}%</span>
-    </div>
-    <div className="relative flex items-center h-6">
-      <div className="absolute inset-x-0 h-1 bg-background-dark rounded-full border border-white/5" />
-      <div 
-        className="absolute h-1 bg-primary rounded-full transition-all duration-75" 
-        style={{ width: `${value}%` }}
-      />
-      <input 
-        type="range" 
-        min="0" 
-        max="100" 
-        value={value} 
-        onChange={(e) => onChange(parseInt(e.target.value))}
-        className="absolute w-full appearance-none bg-transparent cursor-pointer z-10 
-                   [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:size-4 
-                   [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white 
-                   [&::-webkit-slider-thumb]:shadow-[0_0_8px_white] [&::-webkit-slider-thumb]:border 
-                   [&::-webkit-slider-thumb]:border-primary/20
-                   [&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:rounded-full 
-                   [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-none"
-      />
-    </div>
-  </div>
-);
+const Fader: React.FC<KnobProps> = ({ label, value, onChange }) => {
+  const [isDragging, setIsDragging] = useState(false);
+  const trackRef = useRef<HTMLDivElement>(null);
 
-const BypassToggle: React.FC<{ isBypassed: boolean; onToggle: () => void }> = ({ isBypassed, onToggle }) => (
-  <div className="flex items-center gap-3 select-none">
-    <span className={`text-[10px] font-black uppercase tracking-widest transition-colors ${!isBypassed ? 'text-primary' : 'text-text-secondary'}`}>
-      {isBypassed ? 'Bypassed' : 'Engaged'}
-    </span>
-    <button 
-      onClick={onToggle}
-      className={`relative w-11 h-6 rounded-full transition-all duration-300 border-2 ${
-        !isBypassed ? 'bg-primary/20 border-primary shadow-[0_0_10px_rgba(19,91,236,0.3)]' : 'bg-surface-light border-border-dark'
-      }`}
-    >
-      <div 
-        className={`absolute top-0.5 left-0.5 size-4 rounded-full transition-all duration-300 transform shadow-sm ${
-          !isBypassed ? 'translate-x-5 bg-white shadow-[0_0_5px_white]' : 'translate-x-0 bg-text-secondary'
-        }`}
-      />
-    </button>
-  </div>
-);
+  const updateValue = (clientY: number) => {
+    if (!trackRef.current) return;
+    const rect = trackRef.current.getBoundingClientRect();
+    const height = rect.height;
+    const top = rect.top;
+    const relativeY = clientY - top;
+    const newValue = Math.min(100, Math.max(0, 100 - (relativeY / height) * 100));
+    onChange(Math.round(newValue));
+  };
 
-const PatchCable: React.FC<{ active?: boolean }> = ({ active }) => (
-  <div className="relative w-16 h-1 flex items-center justify-center">
-    <div className={`relative h-1.5 w-full bg-[#1a1a1a] shadow-lg rounded-full overflow-hidden transition-all duration-300 ${active ? 'ring-1 ring-primary/30' : ''}`}>
-       <div className="absolute inset-0 bg-gradient-to-t from-transparent to-white/10 pointer-events-none" />
-       {active && <div className="absolute inset-0 bg-primary/20 animate-pulse" />}
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    updateValue(e.clientY);
+    document.body.style.cursor = 'ns-resize';
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDragging) updateValue(e.clientY);
+    };
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      document.body.style.cursor = 'default';
+    };
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
+  return (
+    <div className="flex flex-col items-center gap-4 h-56 select-none group">
+      <div 
+        ref={trackRef}
+        className="relative w-8 flex-1 bg-black/40 rounded-full border border-white/5 cursor-ns-resize overflow-hidden shadow-inner"
+        onMouseDown={handleMouseDown}
+      >
+        <div 
+            className="absolute bottom-0 left-0 right-0 bg-primary/10 transition-all duration-300"
+            style={{ height: `${value}%` }}
+        />
+        <div className="absolute inset-y-4 left-1/2 -translate-x-1/2 flex flex-col justify-between pointer-events-none opacity-20">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="w-2 h-0.5 bg-white rounded-full" />
+          ))}
+        </div>
+        <div 
+          className="absolute left-1/2 -translate-x-1/2 w-6 h-10 bg-gradient-to-b from-surface-light to-background-dark border border-white/10 rounded-lg shadow-[0_5px_15px_rgba(0,0,0,0.5)] flex items-center justify-center transition-all duration-75 z-10"
+          style={{ bottom: `calc(${value}% - 20px)` }}
+        >
+          <div className="w-4 h-1 bg-primary shadow-[0_0_8px_rgba(19,91,236,0.8)] rounded-full" />
+        </div>
+      </div>
+      <div className="text-center">
+        <p className="text-[9px] font-black uppercase tracking-widest text-text-secondary group-hover:text-white transition-colors">{label}</p>
+        <p className="text-[10px] font-mono text-primary font-bold mt-0.5">{value}</p>
+      </div>
     </div>
-    <svg className="absolute -top-4 w-full h-8 pointer-events-none overflow-visible" preserveAspectRatio="none">
-       <path d="M 0 16 Q 32 24 64 16" stroke="#0a0a0a" strokeWidth="4" fill="none" strokeLinecap="round" className="drop-shadow-lg opacity-40" />
-    </svg>
+  );
+};
+
+const PatchCable: React.FC<{ active?: boolean; bypassed?: boolean }> = ({ active, bypassed }) => (
+  <div className="relative w-16 h-1.5 flex items-center justify-center group/cable">
+    <div className={`relative h-2 w-full bg-[#111] shadow-2xl rounded-full overflow-hidden transition-all duration-300 ${active ? 'ring-1 ring-primary/40' : ''}`}>
+       <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-white/5 pointer-events-none" />
+       <div className={`absolute top-0 bottom-0 w-8 bg-gradient-to-r from-transparent via-primary/60 to-transparent transition-opacity duration-300 ${active && !bypassed ? 'animate-[signalFlow_2s_linear_infinite] opacity-100' : 'opacity-0'}`} />
+    </div>
+    <style>{`
+      @keyframes signalFlow {
+        from { left: -50%; }
+        to { left: 150%; }
+      }
+    `}</style>
   </div>
 );
 
@@ -169,29 +186,37 @@ const AmpNode: React.FC<{ amp: Amplifier; active?: boolean; onClick?: () => void
   return (
     <div 
       onClick={onClick}
-      className={`relative w-48 h-36 rounded-xl bg-gradient-to-br ${amp.color} p-4 border border-white/10 shadow-2xl cursor-pointer transition-all hover:-translate-y-1 ${
-        active ? 'ring-2 ring-primary ring-offset-4 ring-offset-background-dark' : ''
+      className={`relative w-52 h-36 rounded-2xl bg-gradient-to-br ${amp.color} p-5 border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] cursor-pointer transition-all hover:-translate-y-1 ${
+        active ? 'ring-2 ring-primary ring-offset-8 ring-offset-background-dark' : ''
       } ${isBypassed ? 'opacity-40 grayscale-[0.5]' : 'opacity-100'}`}
     >
-      <div className="absolute top-3 left-3 flex gap-1">
-        {[1,2,3,4].map(i => <div key={i} className={`size-1 rounded-full ${isBypassed ? 'bg-white/10' : 'bg-white/20'}`} />)}
+      <div className="absolute top-4 left-4 flex gap-1.5">
+        {[1,2,3].map(i => <div key={i} className={`size-1 rounded-full ${isBypassed ? 'bg-white/10' : 'bg-white/30 animate-pulse'}`} />)}
       </div>
-      <div className="h-full flex flex-col items-center justify-center text-center space-y-2">
-        <span className={`material-symbols-outlined !text-[48px] transition-colors ${isBypassed ? 'text-white/10' : 'text-white/40'}`}>speaker</span>
+      <div className="h-full flex flex-col items-center justify-center text-center space-y-1">
+        <span className={`material-symbols-outlined !text-[56px] transition-colors ${isBypassed ? 'text-white/10' : 'text-white/20'}`}>speaker</span>
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60">{amp.brand}</p>
+          <p className="text-[9px] font-black uppercase tracking-[0.25em] text-white/50">{amp.brand}</p>
           <p className="text-sm font-bold text-white tracking-tight">{amp.name}</p>
+          {amp.activeChannel && (
+            <div className="mt-1 flex items-center justify-center gap-1.5">
+              <div className={`size-1 rounded-full ${isBypassed ? 'bg-gray-500' : 'bg-primary shadow-[0_0_5px_#135bec]'}`} />
+              <p className={`text-[8px] font-black uppercase tracking-widest ${isBypassed ? 'text-white/30' : 'text-white/90'}`}>{amp.activeChannel}</p>
+            </div>
+          )}
         </div>
-      </div>
-      <div className="absolute bottom-2 inset-x-4 flex justify-between opacity-40">
-        <div className="size-1.5 rounded-full bg-white" />
-        <div className="size-1.5 rounded-full bg-white" />
       </div>
     </div>
   );
 };
 
-const CreateSetup: React.FC = () => {
+interface CreateSetupProps {
+  onPublish: (setup: Setup) => void;
+  user: User;
+  onProfileClick?: () => void;
+}
+
+const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileClick }) => {
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
   const [activeChain, setActiveChain] = useState<Pedal[]>([MOCK_PEDALS[0]]);
   const [selectedAmp, setSelectedAmp] = useState<Amplifier>(MOCK_AMPLIFIERS[0]);
@@ -200,32 +225,28 @@ const CreateSetup: React.FC = () => {
   const [selectedPedalIndex, setSelectedPedalIndex] = useState<number | null>(0);
   const [isAmpSelected, setIsAmpSelected] = useState(false);
   const [libraryTab, setLibraryTab] = useState<'pedals' | 'amps'>('pedals');
-  
-  // Filtering states
   const [searchQuery, setSearchQuery] = useState('');
   const [brandFilter, setBrandFilter] = useState<string | null>(null);
   const [colorFilter, setColorFilter] = useState<string | null>(null);
   const [ampBrandFilter, setAmpBrandFilter] = useState<string | null>(null);
-
-  // Drag and drop states
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState<string>('');
   const [selectedInstrument, setSelectedInstrument] = useState<Instrument>('Electric Guitar');
-  
   const [songTitle, setSongTitle] = useState('');
   const [artistName, setArtistName] = useState('');
-  const [bpm, setBpm] = useState('');
-  const [releaseYear, setReleaseYear] = useState('');
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [isInstrumentMenuOpen, setIsInstrumentMenuOpen] = useState(false);
 
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     'Dynamics': true, 'Drive': true, 'Modulation': true, 'Delay': false, 'Reverb': false
   });
 
-  const toggleSection = (type: string) => {
-    setExpandedSections(prev => ({ ...prev, [type]: !prev[type] }));
+  const pedalDescriptions: Record<string, string> = {
+    'Dynamics': 'Adjusts volume and touch response. Includes compressors and limiters.',
+    'Drive': 'Adds saturation, sustain, and harmonics. From light overdrive to massive fuzz.',
+    'Modulation': 'Creates movement and textures. Chorus, flangers, phasers, and tremolos.',
+    'Delay': 'Repeats your signal to create rhythmic echoes or ambient soundscapes.',
+    'Reverb': 'Simulates acoustic spaces, from small rooms to infinite cathedrals.'
   };
 
   const commitChange = useCallback((newChain: Pedal[], newAmp: Amplifier) => {
@@ -238,6 +259,23 @@ const CreateSetup: React.FC = () => {
     setSelectedAmp(newAmp);
   }, [history, historyIndex]);
 
+  const autoArrangeChain = () => {
+    const order: PedalType[] = ['Dynamics', 'Drive', 'Modulation', 'Delay', 'Reverb', 'Utility'];
+    const sorted = [...activeChain].sort((a, b) => {
+      return order.indexOf(a.type) - order.indexOf(b.type);
+    });
+    commitChange(sorted, selectedAmp);
+    setSelectedPedalIndex(null);
+  };
+
+  const clearChain = () => {
+    if (confirm("Are you sure you want to clear your entire signal chain?")) {
+        commitChange([], selectedAmp);
+        setSelectedPedalIndex(null);
+        setIsAmpSelected(false);
+    }
+  };
+
   const undo = () => {
     if (historyIndex > 0) {
       const prevIndex = historyIndex - 1;
@@ -245,8 +283,6 @@ const CreateSetup: React.FC = () => {
       setHistoryIndex(prevIndex);
       setActiveChain(state.chain);
       setSelectedAmp(state.amplifier);
-      setSelectedPedalIndex(null);
-      setIsAmpSelected(false);
     }
   };
 
@@ -257,8 +293,6 @@ const CreateSetup: React.FC = () => {
       setHistoryIndex(nextIndex);
       setActiveChain(state.chain);
       setSelectedAmp(state.amplifier);
-      setSelectedPedalIndex(null);
-      setIsAmpSelected(false);
     }
   };
 
@@ -276,17 +310,16 @@ const CreateSetup: React.FC = () => {
     setSelectedPedalIndex(null);
   };
 
-  const updatePedalSetting = (index: number, key: string, newValue: number) => {
+  const movePedal = (index: number, direction: 'left' | 'right') => {
     const next = [...activeChain];
-    const targetPedal = { ...next[index] };
-    targetPedal.settings = { ...targetPedal.settings, [key]: newValue };
-    next[index] = targetPedal;
-    setActiveChain(next);
-    // Don't commit history for every single knob drag to avoid filling buffer
-  };
-
-  const finalizeKnobChange = () => {
-     commitChange(activeChain, selectedAmp);
+    const targetIndex = direction === 'left' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= next.length) return;
+    
+    const [movedPedal] = next.splice(index, 1);
+    next.splice(targetIndex, 0, movedPedal);
+    
+    commitChange(next, selectedAmp);
+    setSelectedPedalIndex(targetIndex);
   };
 
   const togglePedalBypass = (index: number) => {
@@ -295,53 +328,43 @@ const CreateSetup: React.FC = () => {
     commitChange(next, selectedAmp);
   };
 
-  const updatePedalNotes = (index: number, newNotes: string) => {
+  const toggleAmpBypass = () => {
+    commitChange(activeChain, { ...selectedAmp, isBypassed: !selectedAmp.isBypassed });
+  };
+
+  const updatePedalSetting = (index: number, key: string, newValue: number) => {
     const next = [...activeChain];
-    next[index] = { ...next[index], notes: newNotes };
+    next[index] = { ...next[index], settings: { ...next[index].settings, [key]: newValue } };
     setActiveChain(next);
   };
 
+  const finalizeKnobChange = () => commitChange(activeChain, selectedAmp);
+
+  const updateAmpChannel = (channel: string) => {
+    commitChange(activeChain, { ...selectedAmp, activeChannel: channel });
+  };
+
+  const updateAmpVariant = (variant: string) => {
+    commitChange(activeChain, { ...selectedAmp, activeVariant: variant });
+  };
+
   const updateAmpSetting = (key: string, newValue: number) => {
-    setSelectedAmp(prev => ({
-      ...prev,
-      settings: { ...prev.settings, [key]: newValue }
-    }));
+    setSelectedAmp(prev => ({ ...prev, settings: { ...prev.settings, [key]: newValue } }));
   };
 
-  const toggleAmpBypass = () => {
-    const nextAmp = { ...selectedAmp, isBypassed: !selectedAmp.isBypassed };
-    commitChange(activeChain, nextAmp);
-  };
-
-  const updateAmpNotes = (newNotes: string) => {
-    setSelectedAmp(prev => ({ ...prev, notes: newNotes }));
-  };
-
-  // Drag Handlers
-  const handleDragStart = (index: number) => {
-    setDraggedIndex(index);
-  };
-
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    setDragOverIndex(index);
-  };
-
-  const handleDrop = (index: number) => {
-    if (draggedIndex === null || draggedIndex === index) {
-      setDraggedIndex(null);
-      setDragOverIndex(null);
-      return;
-    }
-
-    const newChain = [...activeChain];
-    const [movedPedal] = newChain.splice(draggedIndex, 1);
-    newChain.splice(index, 0, movedPedal);
+  const applyEqPreset = (presetName: string) => {
+    const preset = EQ_PRESETS[presetName];
+    if (!preset) return;
     
-    commitChange(newChain, selectedAmp);
-    setSelectedPedalIndex(index);
-    setDraggedIndex(null);
-    setDragOverIndex(null);
+    const newSettings = { ...selectedAmp.settings };
+    Object.keys(newSettings).forEach(key => {
+      const presetValue = preset[key] || preset[key.toLowerCase()] || preset[key.charAt(0).toUpperCase() + key.slice(1).toLowerCase()];
+      if (presetValue !== undefined) {
+        newSettings[key] = presetValue;
+      }
+    });
+    
+    commitChange(activeChain, { ...selectedAmp, settings: newSettings });
   };
 
   const handleAiToneMatch = async () => {
@@ -351,111 +374,117 @@ const CreateSetup: React.FC = () => {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Signal chain: ${activeChain.map(p => p.name).join(' -> ')} into ${selectedAmp.brand} ${selectedAmp.name}. 
-        Recommend one pedal to add to this chain for a professional Shoegaze wall-of-sound. Brief suggestion.`
+        contents: `Signal chain: ${activeChain.map(p => p.name).join(' -> ')} into ${selectedAmp.brand} ${selectedAmp.name}. Recommend one pedal for a ${selectedInstrument} player seeking a modern tone.`
       });
-      setAiSuggestion(response.text || "Try adding a heavy modulated delay.");
+      setAiSuggestion(response.text || "Try a shimmer reverb at the end.");
     } catch (err) {
-      console.error(err);
-      setAiSuggestion("Failed to get AI recommendation.");
+      setAiSuggestion("Connection error. Try again.");
     } finally {
       setAiAnalyzing(false);
     }
   };
 
-  const handleSave = () => {
-    console.log("Saving Setup:", {
-      song: songTitle, artist: artistName, bpm, year: releaseYear, instrument: selectedInstrument, amplifier: selectedAmp, chain: activeChain
-    });
-    alert(`Setup for "${songTitle}" saved!`);
+  const handlePublish = () => {
+    setIsPublishing(true);
+    const newSetup: Setup = {
+      id: `setup-${Date.now()}`,
+      title: songTitle || "Untitled Tone",
+      artist: artistName || "Various Artists",
+      creator: user.name,
+      creatorAvatar: user.avatar,
+      likes: 0,
+      comments: 0,
+      instrument: selectedInstrument,
+      genre: "Modern",
+      tags: [selectedInstrument.split(' ')[0], "New"],
+      coverImage: `https://picsum.photos/800/600?random=${Math.floor(Math.random() * 100)}`,
+      chain: activeChain,
+      amplifier: selectedAmp,
+      updatedAt: "just now"
+    };
+    
+    setTimeout(() => {
+      onPublish(newSetup);
+      setIsPublishing(false);
+    }, 800);
   };
 
+  const filteredPedals = useMemo(() => 
+    MOCK_PEDALS.filter(p => (p.name + p.brand).toLowerCase().includes(searchQuery.toLowerCase()) && (!brandFilter || p.brand === brandFilter) && (!colorFilter || p.color === colorFilter)),
+  [searchQuery, brandFilter, colorFilter]);
+
+  const filteredAmps = useMemo(() => 
+    MOCK_AMPLIFIERS.filter(a => (a.name + a.brand).toLowerCase().includes(searchQuery.toLowerCase()) && (!ampBrandFilter || a.brand === ampBrandFilter)),
+  [searchQuery, ampBrandFilter]);
+
   const selectedPedal = selectedPedalIndex !== null ? activeChain[selectedPedalIndex] : null;
-  const pedalTypes: PedalType[] = ['Dynamics', 'Drive', 'Modulation', 'Delay', 'Reverb'];
 
-  // Derived filter data
-  const brands = useMemo(() => Array.from(new Set(MOCK_PEDALS.map(p => p.brand))).sort(), []);
-  const colors = useMemo(() => Array.from(new Set(MOCK_PEDALS.map(p => p.color))), []);
-  const ampBrands = useMemo(() => Array.from(new Set(MOCK_AMPLIFIERS.map(a => a.brand))).sort(), []);
-
-  const filteredPedals = useMemo(() => {
-    return MOCK_PEDALS.filter(p => {
-      const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          p.brand.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesBrand = brandFilter ? p.brand === brandFilter : true;
-      const matchesColor = colorFilter ? p.color === colorFilter : true;
-      return matchesSearch && matchesBrand && matchesColor;
+  const { eqSettings, mainSettings } = useMemo(() => {
+    const eq: Record<string, number> = {};
+    const main: Record<string, number> = {};
+    const eqKeys = ['bass', 'mid', 'middle', 'treble', 'presence', 'cut'];
+    
+    Object.entries(selectedAmp.settings).forEach(([k, v]) => {
+      if (eqKeys.includes(k.toLowerCase())) {
+        eq[k] = v as number;
+      } else {
+        main[k] = v as number;
+      }
     });
-  }, [searchQuery, brandFilter, colorFilter]);
-
-  const filteredAmps = useMemo(() => {
-    return MOCK_AMPLIFIERS.filter(a => {
-      const matchesSearch = a.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          a.brand.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesBrand = ampBrandFilter ? a.brand === ampBrandFilter : true;
-      return matchesSearch && matchesBrand;
-    });
-  }, [searchQuery, ampBrandFilter]);
-
-  // EQ Settings Logic for Amplifiers
-  const eqSettingNames = ['Bass', 'Mid', 'Middle', 'Treble', 'Presence', 'Cut'];
-  
-  const ampSettings = useMemo(() => {
-    if (!selectedAmp) return { main: [], eq: [] };
-    const all = Object.entries(selectedAmp.settings);
-    return {
-      main: all.filter(([label]) => !eqSettingNames.includes(label)),
-      eq: all.filter(([label]) => eqSettingNames.includes(label))
-    };
+    return { eqSettings: eq, mainSettings: main };
   }, [selectedAmp]);
+
+  const instruments: { name: Instrument; icon: string }[] = [
+    { name: 'Electric Guitar', icon: 'electric_guitar' },
+    { name: 'Bass Guitar', icon: 'piano' },
+    { name: 'Synth', icon: 'keyboard' },
+    { name: 'Acoustic Guitar', icon: 'music_note' },
+  ];
 
   if (currentStep === 1) {
     return (
-      <div className="h-full flex flex-col items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-500">
-        <div className="max-w-3xl w-full bg-surface-dark border border-border-dark rounded-[2.5rem] overflow-hidden shadow-2xl relative">
-          <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-primary/50 via-primary to-primary/50" />
-          <div className="p-12 space-y-10">
-            <div className="text-center space-y-2">
-              <div className="inline-flex items-center gap-2 px-3 py-1 bg-primary/10 rounded-full border border-primary/20 text-primary text-[10px] font-black uppercase tracking-[0.2em] mb-4">
-                <span className="material-symbols-outlined !text-[14px]">music_note</span>
-                Step 1: Song Information
-              </div>
-              <h2 className="text-4xl font-black tracking-tight">Capture the Essence</h2>
-              <p className="text-text-secondary text-sm">Tell us about the track you're building this tone for.</p>
+      <div className="h-full flex flex-col items-center justify-center p-4 animate-in fade-in zoom-in-95">
+        <div className="max-w-3xl w-full bg-surface-dark border border-border-dark rounded-[3rem] p-12 shadow-2xl space-y-10 relative overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-primary/20 via-primary to-primary/20" />
+          <div className="text-center space-y-4">
+            <div className="bg-primary/10 text-primary border border-primary/20 inline-flex items-center gap-2 px-4 py-1.5 rounded-full font-black text-[10px] uppercase tracking-widest">
+              <span className="material-symbols-outlined !text-[16px]">music_note</span> Setup Step 1
             </div>
-            <div className="grid grid-cols-2 gap-8">
-              <div className="col-span-2 space-y-2">
-                <label className="text-[10px] font-black text-text-secondary uppercase tracking-widest flex justify-between">Song Title <span className="text-primary font-black">Required</span></label>
-                <input type="text" autoFocus value={songTitle} onChange={(e) => setSongTitle(e.target.value)} placeholder="e.g. Only Shallow" className="w-full bg-background-dark border-border-dark focus:border-primary rounded-2xl p-4 text-xl font-bold transition-all placeholder:opacity-20" />
-              </div>
-              <div className="col-span-2 md:col-span-1 space-y-2">
-                <label className="text-[10px] font-black text-text-secondary uppercase tracking-widest flex justify-between">Artist / Band <span className="text-primary font-black">Required</span></label>
-                <input type="text" value={artistName} onChange={(e) => setArtistName(e.target.value)} placeholder="My Bloody Valentine" className="w-full bg-background-dark border-border-dark focus:border-primary rounded-2xl p-4 text-lg font-bold transition-all placeholder:opacity-20" />
-              </div>
-              <div className="col-span-2 md:col-span-1 space-y-2">
-                <label className="text-[10px] font-black text-text-secondary uppercase tracking-widest">Instrument</label>
-                <div className="relative">
-                  <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-primary">piano</span>
-                  <select value={selectedInstrument} onChange={(e) => setSelectedInstrument(e.target.value as Instrument)} className="w-full bg-background-dark border-border-dark focus:border-primary rounded-2xl p-4 pl-12 text-lg font-bold appearance-none cursor-pointer">
-                    <option value="Electric Guitar">Electric Guitar</option>
-                    <option value="Bass Guitar">Bass Guitar</option>
-                    <option value="Synth">Synth</option>
-                    <option value="Acoustic Guitar">Acoustic Guitar</option>
-                  </select>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-text-secondary uppercase tracking-widest">Tempo (BPM)</label>
-                <input type="number" value={bpm} onChange={(e) => setBpm(e.target.value)} placeholder="120" className="w-full bg-background-dark border-border-dark focus:border-primary rounded-2xl p-4 font-mono text-lg transition-all" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-text-secondary uppercase tracking-widest">Release Year</label>
-                <input type="number" value={releaseYear} onChange={(e) => setReleaseYear(e.target.value)} placeholder="1991" className="w-full bg-background-dark border-border-dark focus:border-primary rounded-2xl p-4 font-mono text-lg transition-all" />
-              </div>
+            <h2 className="text-5xl font-black tracking-tighter">Your Tone Story</h2>
+            <p className="text-text-secondary text-lg">Define the track that inspired this signal chain.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-8">
+            <div className="col-span-2 space-y-2">
+              <label className="text-[10px] font-black text-text-secondary uppercase tracking-[0.3em]">Song Title</label>
+              <input value={songTitle} onChange={e => setSongTitle(e.target.value)} placeholder="e.g. Starla" className="w-full bg-background-dark border-border-dark rounded-2xl p-4 text-xl font-bold focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all" />
             </div>
-            <div className="flex justify-end pt-4">
-              <button disabled={!songTitle || !artistName} onClick={() => setCurrentStep(2)} className="group flex items-center gap-3 bg-primary hover:bg-blue-600 disabled:opacity-30 px-10 py-5 rounded-[1.5rem] font-black text-lg transition-all transform hover:scale-105 shadow-xl shadow-primary/20">Go to Pedalboard <span className="material-symbols-outlined group-hover:translate-x-1">arrow_forward</span></button>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-text-secondary uppercase tracking-[0.3em]">Artist</label>
+              <input value={artistName} onChange={e => setArtistName(e.target.value)} placeholder="The Smashing Pumpkins" className="w-full bg-background-dark border-border-dark rounded-2xl p-4 font-bold focus:border-primary transition-all" />
             </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-text-secondary uppercase tracking-[0.3em]">Instrument</label>
+              <select value={selectedInstrument} onChange={e => setSelectedInstrument(e.target.value as any)} className="w-full bg-background-dark border-border-dark rounded-2xl p-4 font-bold appearance-none cursor-pointer">
+                {instruments.map(inst => (
+                  <option key={inst.name} value={inst.name}>{inst.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="flex justify-between items-center pt-8 border-t border-border-dark/50">
+            <button 
+              onClick={onProfileClick}
+              className="flex items-center gap-3 group/user"
+            >
+              <div className="size-10 rounded-full bg-cover bg-center ring-2 ring-border-dark group-hover/user:ring-primary transition-all" style={{ backgroundImage: `url(${user.avatar})` }} />
+              <div className="text-left">
+                <p className="text-[10px] font-black uppercase text-text-secondary tracking-widest">Creating as</p>
+                <p className="text-sm font-bold group-hover/user:text-primary transition-colors">{user.name}</p>
+              </div>
+            </button>
+            <button disabled={!songTitle || !artistName} onClick={() => setCurrentStep(2)} className="bg-primary hover:bg-blue-600 disabled:opacity-20 px-12 py-5 rounded-3xl font-black text-xl flex items-center gap-3 transition-all hover:scale-105 shadow-xl shadow-primary/30">
+              Enter Pedalboard <span className="material-symbols-outlined">arrow_forward</span>
+            </button>
           </div>
         </div>
       </div>
@@ -464,343 +493,345 @@ const CreateSetup: React.FC = () => {
 
   return (
     <div className="h-[calc(100vh-140px)] flex flex-col gap-6 animate-in slide-in-from-right duration-500">
-      <div className="bg-surface-dark/60 backdrop-blur border border-border-dark rounded-2xl p-4 flex items-center justify-between px-8">
+      <div className="bg-surface-dark/40 backdrop-blur-xl border border-border-dark rounded-2xl p-4 flex items-center justify-between px-8 shadow-xl">
         <div className="flex items-center gap-6">
-          <button onClick={() => setCurrentStep(1)} className="size-10 rounded-xl bg-background-dark border border-border-dark flex items-center justify-center text-text-secondary hover:text-white transition-colors"><span className="material-symbols-outlined !text-[20px]">arrow_back</span></button>
+          <button onClick={() => setCurrentStep(1)} className="size-12 rounded-2xl bg-background-dark border border-border-dark flex items-center justify-center text-text-secondary hover:text-white transition-all"><span className="material-symbols-outlined">edit_note</span></button>
           <div>
             <div className="flex items-center gap-3">
-              <h2 className="font-black text-xl">{songTitle || 'Untitled Setup'}</h2>
-              <div className="size-1 rounded-full bg-border-dark" />
-              <p className="text-text-secondary font-bold text-sm">{artistName || 'Unknown Artist'}</p>
-            </div>
-            <div className="flex gap-4 mt-0.5">
-               <span className="text-[10px] text-primary font-black uppercase tracking-widest">{selectedInstrument}</span>
-               {bpm && <span className="text-[10px] text-text-secondary font-bold uppercase tracking-widest">{bpm} BPM</span>}
-               {releaseYear && <span className="text-[10px] text-text-secondary font-bold uppercase tracking-widest">Released {releaseYear}</span>}
+              <h2 className="font-black text-2xl tracking-tight">{songTitle}</h2>
+              <span className="text-text-secondary/50 font-black">/</span>
+              <p className="text-text-secondary font-bold text-lg">{artistName}</p>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        
+        <button 
+          onClick={onProfileClick}
+          className="hidden md:flex items-center gap-3 group/headeruser"
+        >
           <div className="text-right">
-            <p className="text-[9px] font-black text-text-secondary uppercase tracking-widest">Selected Amp</p>
-            <p className="text-xs font-bold text-white">{selectedAmp.brand} {selectedAmp.name}</p>
+            <p className="text-[9px] font-black uppercase text-text-secondary tracking-widest">Rig Creator</p>
+            <p className="text-xs font-bold group-hover/headeruser:text-primary transition-colors">{user.name}</p>
           </div>
-          <div className="size-10 rounded-full bg-surface-light border border-border-dark flex items-center justify-center text-primary">
-            <span className="material-symbols-outlined">speaker</span>
-          </div>
+          <div className="size-10 rounded-full bg-cover bg-center ring-2 ring-border-dark group-hover/headeruser:ring-primary transition-all shadow-xl" style={{ backgroundImage: `url(${user.avatar})` }} />
+        </button>
+
+        <div className="flex gap-4">
+           <button onClick={undo} disabled={historyIndex <= 0} className="size-11 rounded-xl bg-background-dark/50 border border-border-dark flex items-center justify-center disabled:opacity-20 hover:text-primary transition-colors"><span className="material-symbols-outlined">undo</span></button>
+           <button onClick={redo} disabled={historyIndex >= history.length - 1} className="size-11 rounded-xl bg-background-dark/50 border border-border-dark flex items-center justify-center disabled:opacity-20 hover:text-primary transition-colors"><span className="material-symbols-outlined">redo</span></button>
+           <button onClick={clearChain} className="bg-red-500/10 border border-red-500/20 text-red-500 px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2 hover:bg-red-500/20 transition-all">
+             <span className="material-symbols-outlined !text-[18px]">delete_sweep</span> Clear
+           </button>
+           <button onClick={autoArrangeChain} className="bg-primary/10 border border-primary/20 text-primary px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2 hover:bg-primary/20 transition-all">
+             <span className="material-symbols-outlined !text-[18px]">magic_button</span> Auto-Order
+           </button>
         </div>
       </div>
 
       <div className="flex-1 flex gap-6 min-h-0">
-        <aside className="w-72 bg-surface-dark border border-border-dark rounded-2xl flex flex-col shrink-0 overflow-hidden shadow-xl">
-          <div className="flex border-b border-border-dark">
-            <button 
-              onClick={() => setLibraryTab('pedals')}
-              className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${libraryTab === 'pedals' ? 'text-primary bg-primary/5' : 'text-text-secondary hover:text-white'}`}
-            >Pedals</button>
-            <button 
-              onClick={() => setLibraryTab('amps')}
-              className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${libraryTab === 'amps' ? 'text-primary bg-primary/5' : 'text-text-secondary hover:text-white'}`}
-            >Amplifiers</button>
+        <aside className="w-72 bg-surface-dark border border-border-dark rounded-3xl flex flex-col shrink-0 overflow-hidden shadow-2xl">
+          <div className="flex bg-background-dark/30">
+            <button onClick={() => setLibraryTab('pedals')} className={`flex-1 py-4 text-[10px] font-black uppercase tracking-[0.2em] transition-all ${libraryTab === 'pedals' ? 'text-primary bg-primary/5' : 'text-text-secondary'}`}>Pedals</button>
+            <button onClick={() => setLibraryTab('amps')} className={`flex-1 py-4 text-[10px] font-black uppercase tracking-[0.2em] transition-all ${libraryTab === 'amps' ? 'text-primary bg-primary/5' : 'text-text-secondary'}`}>Amps</button>
           </div>
-          
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="p-4 border-b border-border-dark bg-background-dark/10">
+            <div className="relative">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary !text-[18px]">search</span>
+              <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={`Find ${libraryTab}...`} className="w-full bg-background-dark border-border-dark rounded-xl py-2 pl-10 pr-4 text-xs focus:ring-primary/40 focus:border-primary transition-all" />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-6">
             {libraryTab === 'pedals' ? (
-              <>
-                <div className="space-y-4">
-                  {/* Search */}
-                  <div className="relative">
-                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 !text-[18px] text-text-secondary">search</span>
-                    <input 
-                      className="w-full bg-background-dark border-none rounded-lg py-2 pl-9 pr-4 text-xs focus:ring-1 focus:ring-primary placeholder:text-text-secondary/50"
-                      placeholder="Search pedals..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      type="text"
-                    />
-                  </div>
-
-                  {/* Brand Filters */}
-                  <div className="space-y-2">
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-text-secondary">Brand</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      <button 
-                        onClick={() => setBrandFilter(null)}
-                        className={`px-2 py-1 rounded text-[9px] font-bold border transition-all ${brandFilter === null ? 'bg-primary border-primary text-white' : 'bg-surface-light/20 border-border-dark text-text-secondary hover:text-white'}`}
-                      >All</button>
-                      {brands.map(brand => (
-                        <button 
-                          key={brand}
-                          onClick={() => setBrandFilter(brandFilter === brand ? null : brand)}
-                          className={`px-2 py-1 rounded text-[9px] font-bold border transition-all ${brandFilter === brand ? 'bg-primary border-primary text-white' : 'bg-surface-light/20 border-border-dark text-text-secondary hover:text-white'}`}
-                        >{brand}</button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Color Filters */}
-                  <div className="space-y-2 pb-2 border-b border-border-dark">
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-text-secondary">Theme</p>
-                    <div className="flex flex-wrap gap-2">
-                      <button 
-                         onClick={() => setColorFilter(null)}
-                         className={`size-5 rounded-full border flex items-center justify-center ${colorFilter === null ? 'border-primary ring-1 ring-primary' : 'border-border-dark'}`}
-                      >
-                        <div className="size-3 rounded-full bg-white/20" />
-                      </button>
-                      {colors.map(color => (
-                        <button 
-                          key={color}
-                          onClick={() => setColorFilter(colorFilter === color ? null : color)}
-                          className={`size-5 rounded-full border transition-all bg-gradient-to-br ${color} ${colorFilter === color ? 'ring-2 ring-primary border-white scale-110' : 'border-black/40 hover:scale-105'}`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-1 pt-2">
-                  {pedalTypes.map(type => {
-                    const isExpanded = expandedSections[type];
-                    const categoryPedals = filteredPedals.filter(p => p.type === type);
-                    
-                    if (categoryPedals.length === 0) return null;
-
-                    return (
-                      <div key={type} className="flex flex-col">
-                        <button onClick={() => toggleSection(type)} className={`flex items-center justify-between p-3 rounded-xl transition-all ${isExpanded ? 'bg-surface-light/30' : 'hover:bg-surface-light/20'}`}>
-                          <div className="flex items-center gap-3">
-                            <span className={`material-symbols-outlined !text-[18px] ${isExpanded ? 'text-primary' : 'text-text-secondary'}`}>{type === 'Dynamics' ? 'compress' : type === 'Drive' ? 'bolt' : type === 'Modulation' ? 'waves' : type === 'Delay' ? 'timer' : 'cloud'}</span>
-                            <h3 className="text-[11px] font-black text-text-secondary uppercase tracking-widest">{type}</h3>
-                          </div>
-                          <span className={`material-symbols-outlined !text-[18px] text-text-secondary transition-transform ${isExpanded ? 'rotate-180' : ''}`}>expand_more</span>
-                        </button>
-                        {isExpanded && (
-                          <div className="mt-2 mb-4 px-1 space-y-1.5 animate-in slide-in-from-top-1 duration-200">
-                            {categoryPedals.map(pedal => (
-                              <button key={pedal.id} onClick={() => addPedal(pedal)} className="w-full flex items-center gap-3 p-2 rounded-xl bg-surface-light/10 hover:bg-primary/10 border border-transparent hover:border-primary/30 group">
-                                <div className={`size-10 rounded bg-gradient-to-br ${pedal.color} flex items-center justify-center shadow-lg`}><span className="material-symbols-outlined text-white !text-[20px]">{pedal.icon}</span></div>
-                                <div className="text-left min-w-0">
-                                  <p className="text-xs font-bold truncate">{pedal.name}</p>
-                                  <p className="text-[9px] text-text-secondary uppercase">{pedal.brand}</p>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            ) : (
-              <div className="space-y-4">
-                <div className="space-y-4 px-1">
-                  {/* Search Amps */}
-                  <div className="relative">
-                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 !text-[18px] text-text-secondary">search</span>
-                    <input 
-                      className="w-full bg-background-dark border-none rounded-lg py-2 pl-9 pr-4 text-xs focus:ring-1 focus:ring-primary placeholder:text-text-secondary/50"
-                      placeholder="Search amps..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      type="text"
-                    />
-                  </div>
-
-                  {/* Amp Brand Filters */}
-                  <div className="space-y-2 pb-2 border-b border-border-dark">
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-text-secondary">Manufacturer</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      <button 
-                        onClick={() => setAmpBrandFilter(null)}
-                        className={`px-2 py-1 rounded text-[9px] font-bold border transition-all ${ampBrandFilter === null ? 'bg-primary border-primary text-white' : 'bg-surface-light/20 border-border-dark text-text-secondary hover:text-white'}`}
-                      >All</button>
-                      {ampBrands.map(brand => (
-                        <button 
-                          key={brand}
-                          onClick={() => { setAmpBrandFilter(ampBrandFilter === brand ? null : brand); }}
-                          className={`px-2 py-1 rounded text-[9px] font-bold border transition-all ${ampBrandFilter === brand ? 'bg-primary border-primary text-white' : 'bg-surface-light/20 border-border-dark text-text-secondary hover:text-white'}`}
-                        >{brand}</button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-1 space-y-2">
-                  {filteredAmps.map(amp => (
-                    <button 
-                      key={amp.id} 
-                      onClick={() => { commitChange(activeChain, amp); setIsAmpSelected(true); setSelectedPedalIndex(null); }}
-                      className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${selectedAmp.id === amp.id ? 'bg-primary/10 border-primary/40' : 'bg-surface-light/10 border-transparent hover:bg-surface-light/20'}`}
-                    >
-                      <div className={`size-12 rounded bg-gradient-to-br ${amp.color} flex items-center justify-center`}><span className="material-symbols-outlined text-white">speaker</span></div>
-                      <div className="text-left">
-                        <p className="text-xs font-bold">{amp.name}</p>
-                        <p className="text-[9px] text-text-secondary uppercase">{amp.brand}</p>
-                      </div>
+              Object.entries(pedalDescriptions).map(([type, desc]) => {
+                const categoryPedals = filteredPedals.filter(p => p.type === type);
+                if (categoryPedals.length === 0) return null;
+                const isExp = expandedSections[type];
+                return (
+                  <div key={type} className="space-y-3">
+                    <button onClick={() => setExpandedSections(p => ({...p, [type]: !isExp}))} className="w-full flex items-center justify-between group">
+                      <h3 className={`text-[11px] font-black uppercase tracking-[0.25em] transition-colors ${isExp ? 'text-primary' : 'text-text-secondary'}`}>{type}</h3>
+                      <span className={`material-symbols-outlined !text-[18px] text-text-secondary transition-transform ${isExp ? 'rotate-180' : ''}`}>expand_more</span>
                     </button>
-                  ))}
-                  {filteredAmps.length === 0 && (
-                    <div className="py-8 text-center text-text-secondary text-xs italic">No amplifiers found matching filters.</div>
-                  )}
-                </div>
-              </div>
+                    {isExp && (
+                      <div className="space-y-2 animate-in slide-in-from-top-2">
+                        {categoryPedals.map(p => (
+                          <button key={p.id} onClick={() => addPedal(p)} className="w-full flex items-center gap-3 p-2.5 rounded-2xl bg-surface-light/5 hover:bg-primary/10 border border-transparent hover:border-primary/30 transition-all group">
+                            <div className={`size-10 rounded-xl bg-gradient-to-br ${p.color} flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform`}><span className="material-symbols-outlined text-white !text-[20px]">{p.icon}</span></div>
+                            <div className="text-left"><p className="text-[11px] font-bold">{p.name}</p><p className="text-[8px] text-text-secondary uppercase">{p.brand}</p></div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              filteredAmps.map(amp => (
+                <button key={amp.id} onClick={() => commitChange(activeChain, amp)} className={`w-full flex items-center gap-4 p-4 rounded-3xl border transition-all ${selectedAmp.id === amp.id ? 'bg-primary/10 border-primary/50' : 'bg-surface-light/10 border-transparent hover:bg-white/5'}`}>
+                  <div className={`size-14 rounded-2xl bg-gradient-to-br ${amp.color} flex items-center justify-center shadow-xl`}><span className="material-symbols-outlined text-white !text-[28px]">speaker</span></div>
+                  <div className="text-left"><p className="text-xs font-black tracking-tight">{amp.name}</p><p className="text-[9px] text-text-secondary uppercase">{amp.brand}</p></div>
+                </button>
+              ))
             )}
           </div>
         </aside>
 
-        <div className="flex-1 bg-background-dark border border-border-dark rounded-3xl p-0 relative flex flex-col shadow-inner overflow-hidden">
-          <div className="absolute inset-0 opacity-[0.1]" style={{ backgroundImage: 'radial-gradient(circle, #555 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
-          <div className="absolute top-6 right-6 flex gap-2 z-20">
-            <button onClick={undo} disabled={historyIndex <= 0} className="size-10 rounded-xl bg-surface-dark/80 backdrop-blur border border-border-dark flex items-center justify-center hover:text-primary disabled:opacity-30"><span className="material-symbols-outlined !text-[20px]">undo</span></button>
-            <button onClick={redo} disabled={historyIndex >= history.length - 1} className="size-10 rounded-xl bg-surface-dark/80 backdrop-blur border border-border-dark flex items-center justify-center hover:text-primary disabled:opacity-30"><span className="material-symbols-outlined !text-[20px]">redo</span></button>
-          </div>
-
-          <div className="relative z-10 flex-1 flex items-center justify-center px-12 overflow-x-auto pb-12 pt-8">
+        <div className="flex-1 bg-[#0a0c10] border border-border-dark rounded-[3rem] relative flex flex-col shadow-[inset_0_10px_100px_rgba(0,0,0,0.5)] overflow-hidden">
+          <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: 'radial-gradient(circle, #555 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
+          
+          <div className="relative z-10 flex-1 flex items-center justify-center px-16 overflow-x-auto pb-8 pt-4">
             <div className="flex items-center gap-0">
-              <div className="flex flex-col items-center gap-3">
-                <div className="size-12 rounded-full bg-surface-dark border-2 border-border-dark flex items-center justify-center text-text-secondary"><span className="material-symbols-outlined !text-[24px]">input</span></div>
-                <span className="text-[9px] font-black tracking-widest text-text-secondary uppercase">Input</span>
+              <div className="flex flex-col items-center gap-4 group">
+                <div className="size-14 rounded-full bg-surface-dark border-2 border-border-dark flex items-center justify-center text-text-secondary group-hover:text-primary transition-all shadow-[0_0_20px_rgba(0,0,0,0.5)]"><span className="material-symbols-outlined !text-[32px]">input</span></div>
+                <span className="text-[10px] font-black tracking-widest text-text-secondary uppercase">Input</span>
               </div>
 
-              {activeChain.map((pedal, idx) => (
-                <React.Fragment key={pedal.id}>
-                  <PatchCable active={selectedPedalIndex === idx} />
-                  <div 
-                    draggable
-                    onDragStart={() => handleDragStart(idx)}
-                    onDragOver={(e) => handleDragOver(e, idx)}
-                    onDrop={() => handleDrop(idx)}
-                    className={`transition-all duration-300 ${draggedIndex === idx ? 'opacity-30 scale-90 grayscale' : ''} ${dragOverIndex === idx && draggedIndex !== idx ? 'translate-x-4 ring-2 ring-primary/20 rounded-2xl' : ''}`}
-                  >
-                    <PedalNode 
-                      pedal={pedal} 
-                      active={selectedPedalIndex === idx} 
-                      onClick={() => { setSelectedPedalIndex(idx); setIsAmpSelected(false); }} 
-                      size="md" 
-                    />
+              {activeChain.map((p, i) => (
+                <React.Fragment key={p.id}>
+                  <PatchCable active={true} bypassed={p.isBypassed} />
+                  <div className="relative">
+                    <PedalNode pedal={p} active={selectedPedalIndex === i} onClick={() => { setSelectedPedalIndex(i); setIsAmpSelected(false); }} size="md" />
                   </div>
                 </React.Fragment>
               ))}
 
-              <PatchCable active={isAmpSelected} />
-              <div 
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={() => draggedIndex !== null && handleDrop(activeChain.length - 1)}
-                className="flex flex-col items-center gap-3"
-              >
+              <PatchCable active={true} bypassed={selectedAmp.isBypassed} />
+              <div className="flex flex-col items-center gap-4">
                 <AmpNode amp={selectedAmp} active={isAmpSelected} onClick={() => { setIsAmpSelected(true); setSelectedPedalIndex(null); }} />
-                <span className="text-[9px] font-black tracking-widest text-text-secondary uppercase">Amplifier</span>
-              </div>
-
-              <div className="w-12 h-1 bg-border-dark" />
-              <div className="flex flex-col items-center gap-3">
-                <div className="size-12 rounded-full bg-surface-dark border-2 border-border-dark flex items-center justify-center text-text-secondary"><span className="material-symbols-outlined !text-[24px]">output</span></div>
-                <span className="text-[9px] font-black tracking-widest text-text-secondary uppercase">Output</span>
+                <span className="text-[10px] font-black tracking-widest text-text-secondary uppercase">Amplifier</span>
               </div>
             </div>
           </div>
 
-          <div className="absolute bottom-8 left-8 right-8 bg-surface-dark/80 backdrop-blur border border-border-dark p-4 rounded-2xl flex items-center justify-between z-30">
-            <div className="flex items-center gap-4">
-               <div className={`size-10 rounded-full bg-primary/20 flex items-center justify-center text-primary ${aiAnalyzing ? 'animate-spin' : ''}`}><span className="material-symbols-outlined">smart_toy</span></div>
-               <div className="max-w-md"><p className="text-xs font-bold text-white mb-0.5">AI Tone Assistant</p><p className="text-[10px] text-text-secondary italic">{aiSuggestion || "I'll suggest how to polish your tone based on your chain."}</p></div>
+          <div className="absolute bottom-8 inset-x-8 bg-surface-dark/90 backdrop-blur-2xl border border-primary/20 p-5 rounded-[2rem] flex items-center justify-between z-30 shadow-[0_20px_60px_rgba(0,0,0,0.8)]">
+            <div className="flex items-center gap-5">
+               <div className={`size-14 rounded-2xl bg-primary/10 flex items-center justify-center text-primary relative overflow-hidden`}>
+                 {aiAnalyzing && <div className="absolute inset-0 border-2 border-primary border-t-transparent rounded-2xl animate-spin" />}
+                 <span className="material-symbols-outlined !text-[32px]">smart_toy</span>
+               </div>
+               <div className="max-w-md">
+                 <p className="text-[11px] font-black uppercase tracking-widest text-primary mb-1">Tone Assistant Expert</p>
+                 <p className="text-[13px] text-text-secondary leading-snug font-medium italic">
+                   {aiAnalyzing ? "Optimizing signal-to-noise ratio..." : aiSuggestion || "Your rig is looking professional. Need an adjustment?"}
+                 </p>
+               </div>
             </div>
-            <button onClick={handleAiToneMatch} disabled={aiAnalyzing} className="bg-primary hover:bg-blue-600 disabled:opacity-50 px-4 py-2 rounded-lg text-xs font-bold shadow-lg shadow-primary/20">Get Suggestion</button>
+            <div className="flex gap-2">
+              {aiSuggestion && !aiAnalyzing && <button onClick={() => {setAiSuggestion(''); setAiAnalyzing(false);}} className="px-5 py-2.5 rounded-xl text-xs font-bold text-text-secondary hover:text-white transition-all">Dismiss</button>}
+              <button onClick={handleAiToneMatch} disabled={aiAnalyzing} className="bg-primary hover:bg-blue-600 disabled:opacity-50 px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-primary/20 transition-all active:scale-95">
+                {aiAnalyzing ? "Processing..." : "Analyze Setup"}
+              </button>
+            </div>
           </div>
         </div>
 
-        <aside className="w-80 bg-surface-dark border border-border-dark rounded-2xl flex flex-col shrink-0 overflow-hidden shadow-xl">
+        <aside className="w-80 bg-surface-dark border border-border-dark rounded-3xl flex flex-col shrink-0 overflow-hidden shadow-2xl">
           {(selectedPedal || isAmpSelected) ? (
             <>
-              <div className="p-5 border-b border-border-dark flex justify-between items-center bg-surface-light/30">
-                <div className="flex items-center gap-3 shrink-0">
-                  <div className={`size-8 rounded bg-gradient-to-br ${isAmpSelected ? selectedAmp.color : selectedPedal!.color} flex items-center justify-center shadow`}><span className="material-symbols-outlined text-white !text-[18px]">{isAmpSelected ? 'speaker' : selectedPedal!.icon}</span></div>
-                  <div>
-                    <h2 className="text-sm font-bold truncate max-w-[100px]">{isAmpSelected ? selectedAmp.name : selectedPedal!.name}</h2>
-                    <p className="text-[9px] text-primary font-black uppercase tracking-widest">{isAmpSelected ? 'Amplifier' : selectedPedal!.type}</p>
+              <div className="p-6 border-b border-border-dark bg-surface-light/20 flex flex-col gap-4">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-4">
+                    <div className={`size-10 rounded-xl bg-gradient-to-br ${isAmpSelected ? selectedAmp.color : selectedPedal!.color} flex items-center justify-center shadow-lg`}><span className="material-symbols-outlined text-white !text-[24px]">{isAmpSelected ? 'speaker' : selectedPedal!.icon}</span></div>
+                    <div>
+                      <h2 className="text-base font-black truncate max-w-[120px] tracking-tight">{isAmpSelected ? selectedAmp.name : selectedPedal!.name}</h2>
+                      <p className="text-[10px] text-primary font-black uppercase tracking-widest">{isAmpSelected ? 'Amplifier' : selectedPedal!.type}</p>
+                    </div>
                   </div>
-                </div>
-                
-                <div className="flex items-center gap-3">
-                  <BypassToggle 
-                    isBypassed={isAmpSelected ? !!selectedAmp.isBypassed : !!selectedPedal?.isBypassed} 
-                    onToggle={() => isAmpSelected ? toggleAmpBypass() : togglePedalBypass(selectedPedalIndex!)} 
-                  />
                   {!isAmpSelected && (
-                    <button onClick={() => removePedal(selectedPedalIndex!)} className="size-8 rounded-lg hover:bg-red-500/10 text-text-secondary hover:text-red-500 flex items-center justify-center"><span className="material-symbols-outlined !text-[18px]">delete</span></button>
+                    <div className="flex gap-1.5">
+                      <button 
+                        disabled={selectedPedalIndex === 0}
+                        onClick={() => movePedal(selectedPedalIndex!, 'left')}
+                        className="size-10 rounded-xl bg-surface-light border border-border-dark flex items-center justify-center hover:bg-white/5 disabled:opacity-20 transition-all"
+                      >
+                        <span className="material-symbols-outlined !text-[20px]">arrow_back</span>
+                      </button>
+                      <button 
+                        disabled={selectedPedalIndex === activeChain.length - 1}
+                        onClick={() => movePedal(selectedPedalIndex!, 'right')}
+                        className="size-10 rounded-xl bg-surface-light border border-border-dark flex items-center justify-center hover:bg-white/5 disabled:opacity-20 transition-all"
+                      >
+                        <span className="material-symbols-outlined !text-[20px]">arrow_forward</span>
+                      </button>
+                      <button onClick={() => removePedal(selectedPedalIndex!)} className="size-10 rounded-xl bg-red-500/10 text-red-500 flex items-center justify-center hover:bg-red-500/20 transition-all"><span className="material-symbols-outlined !text-[20px]">delete</span></button>
+                    </div>
                   )}
                 </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-6 space-y-10">
-                {isAmpSelected ? (
-                  <div className="space-y-10">
-                    {/* Amplifier Main Controls (Knobs) */}
-                    <div className="grid grid-cols-2 gap-y-10 gap-x-4">
-                      {ampSettings.main.map(([label, value]) => (
-                        <Knob 
-                          key={label} 
-                          label={label} 
-                          value={value as number} 
-                          onChange={(newVal) => updateAmpSetting(label, newVal)} 
-                        />
-                      ))}
+                
+                <div className="flex items-center justify-between p-4 bg-background-dark/30 rounded-2xl border border-white/5 animate-in slide-in-from-top-2">
+                    <div className="flex flex-col">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-text-secondary">Component Power</span>
+                    <span className={`text-[10px] font-black uppercase tracking-widest mt-0.5 ${ (isAmpSelected ? selectedAmp.isBypassed : selectedPedal!.isBypassed) ? 'text-text-secondary/50' : 'text-primary'}`}>
+                        {(isAmpSelected ? selectedAmp.isBypassed : selectedPedal!.isBypassed) ? 'BYPASSED' : 'ACTIVE'}
+                    </span>
                     </div>
-
-                    {/* Amplifier Visual EQ (Sliders) */}
-                    {ampSettings.eq.length > 0 && (
-                      <div className="pt-8 border-t border-border-dark/50 space-y-6">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="material-symbols-outlined !text-[16px] text-primary">equalizer</span>
-                          <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-text-secondary">Visual Equalizer</h3>
+                    <button 
+                    onClick={() => isAmpSelected ? toggleAmpBypass() : togglePedalBypass(selectedPedalIndex!)}
+                    className={`relative w-14 h-7 rounded-full transition-all duration-300 shadow-inner overflow-hidden ${ (isAmpSelected ? selectedAmp.isBypassed : selectedPedal!.isBypassed) ? 'bg-background-dark' : 'bg-primary/20 border-primary/40'}`}
+                    >
+                        <div className={`absolute top-1 size-5 rounded-full transition-all duration-300 shadow-[0_2px_5px_rgba(0,0,0,0.5)] flex items-center justify-center ${ (isAmpSelected ? selectedAmp.isBypassed : selectedPedal!.isBypassed) ? 'left-1 bg-surface-light' : 'left-8 bg-primary shadow-[0_0_10px_#135bec]'}`}>
+                        <div className={`size-1.5 rounded-full ${ (isAmpSelected ? selectedAmp.isBypassed : selectedPedal!.isBypassed) ? 'bg-gray-600' : 'bg-white shadow-[0_0_5px_white]'}`} />
                         </div>
-                        <div className="space-y-5 bg-background-dark/30 p-4 rounded-2xl border border-white/5" onMouseUp={finalizeKnobChange}>
-                          {ampSettings.eq.map(([label, value]) => (
-                            <EqualizerSlider 
-                              key={label} 
-                              label={label} 
-                              value={value as number} 
-                              onChange={(newVal) => updateAmpSetting(label, newVal)} 
-                            />
+                    </button>
+                </div>
+
+                {!isAmpSelected && (
+                    <div className="p-3 bg-primary/5 rounded-2xl border border-primary/10">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="material-symbols-outlined !text-[14px] text-primary">info</span>
+                        <p className="text-[9px] font-black uppercase tracking-wider text-primary">Technical Insight</p>
+                      </div>
+                      <p className="text-[10px] text-text-secondary leading-relaxed italic">{pedalDescriptions[selectedPedal!.type]}</p>
+                    </div>
+                )}
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 space-y-10" onMouseUp={finalizeKnobChange}>
+                {isAmpSelected ? (
+                  <div className={`space-y-10 transition-opacity duration-300 ${selectedAmp.isBypassed ? 'opacity-20 pointer-events-none grayscale' : 'opacity-100'}`}>
+                    {selectedAmp.variants && (
+                      <div className="space-y-4">
+                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-text-secondary ml-1">Circuit Variant</label>
+                        <div className="relative">
+                          <select 
+                            value={selectedAmp.activeVariant}
+                            onChange={(e) => updateAmpVariant(e.target.value)}
+                            className="w-full bg-background-dark border border-border-dark rounded-xl p-3 text-xs font-bold focus:ring-primary appearance-none cursor-pointer pr-10 hover:border-primary/50 transition-all"
+                          >
+                            {selectedAmp.variants.map(v => (
+                              <option key={v} value={v}>{v}</option>
+                            ))}
+                          </select>
+                          <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 !text-[20px] pointer-events-none text-text-secondary">unfold_more</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedAmp.channels && (
+                      <div className="space-y-4">
+                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-text-secondary ml-1">Preamp Channel</label>
+                        <div className="grid grid-cols-2 gap-2 p-1.5 bg-background-dark/50 rounded-2xl border border-white/5">
+                          {selectedAmp.channels.map(c => (
+                            <button key={c} onClick={() => updateAmpChannel(c)} className={`px-3 py-2.5 rounded-xl text-[10px] font-bold uppercase transition-all flex items-center gap-2 ${selectedAmp.activeChannel === c ? 'bg-primary text-white shadow-xl' : 'text-text-secondary hover:bg-white/5'}`}>
+                              <div className={`size-1.5 rounded-full ${selectedAmp.activeChannel === c ? 'bg-white shadow-[0_0_5px_white]' : 'bg-gray-700'}`} />
+                              {c}
+                            </button>
                           ))}
                         </div>
                       </div>
                     )}
+
+                    <div className="space-y-6">
+                       <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-text-secondary ml-1">Main Gain & Volume</h3>
+                       <div className="grid grid-cols-2 gap-y-12 gap-x-6">
+                        {Object.entries(mainSettings).map(([label, value]) => (
+                          <Knob key={label} label={label} value={value} onChange={v => updateAmpSetting(label, v)} />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-6">
+                       <div className="flex items-center justify-between ml-1">
+                         <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-text-secondary">Graphic Equalizer</h3>
+                         <div className="relative group/preset">
+                           <select 
+                            onChange={(e) => applyEqPreset(e.target.value)}
+                            className="bg-surface-light border border-border-dark rounded-lg py-1 px-3 text-[9px] font-black uppercase tracking-widest text-text-secondary focus:ring-1 focus:ring-primary focus:border-primary appearance-none cursor-pointer pr-8 hover:text-white transition-colors"
+                            defaultValue=""
+                           >
+                             <option value="" disabled>EQ Presets</option>
+                             {Object.keys(EQ_PRESETS).map(name => (
+                               <option key={name} value={name}>{name}</option>
+                             ))}
+                           </select>
+                           <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 !text-[12px] pointer-events-none text-text-secondary group-hover/preset:text-white transition-colors">expand_more</span>
+                         </div>
+                       </div>
+                       <div className="bg-background-dark/50 border border-white/5 rounded-3xl p-6 flex justify-around items-end gap-2 shadow-inner min-h-[280px]">
+                        {Object.entries(eqSettings).map(([label, value]) => (
+                          <Fader key={label} label={label} value={value} onChange={v => updateAmpSetting(label, v)} />
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 ) : (
-                  /* Pedal Controls */
-                  <div className="grid grid-cols-2 gap-y-10 gap-x-4" onMouseUp={finalizeKnobChange}>
+                  <div className={`grid grid-cols-2 gap-y-12 gap-x-6 transition-opacity duration-300 ${selectedPedal!.isBypassed ? 'opacity-20 pointer-events-none grayscale' : 'opacity-100'}`}>
                     {Object.entries(selectedPedal!.settings).map(([label, value]) => (
-                      <Knob 
-                        key={label} 
-                        label={label} 
-                        value={value} 
-                        onChange={(newVal) => updatePedalSetting(selectedPedalIndex!, label, newVal)} 
-                      />
+                      <Knob key={label} label={label} value={value} onChange={v => updatePedalSetting(selectedPedalIndex!, label, v)} />
                     ))}
                   </div>
                 )}
-
-                <div className="pt-6 border-t border-border-dark space-y-3">
-                  <div className="flex items-center gap-2 text-text-secondary"><span className="material-symbols-outlined !text-[16px]">notes</span><label className="text-[10px] font-black uppercase tracking-widest">{isAmpSelected ? 'Amp' : 'Pedal'} Notes</label></div>
-                  <textarea className="w-full bg-background-dark border-none rounded-xl p-4 text-xs focus:ring-1 focus:ring-primary placeholder:text-gray-600 h-28 resize-none leading-relaxed" placeholder="Add performance notes..." value={(isAmpSelected ? selectedAmp.notes : selectedPedal!.notes) || ''} onChange={(e) => isAmpSelected ? updateAmpNotes(e.target.value) : updatePedalNotes(selectedPedalIndex!, e.target.value)} />
-                </div>
               </div>
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-center p-8 space-y-6">
-              <div className="size-20 rounded-full bg-surface-light flex items-center justify-center border border-border-dark"><span className="material-symbols-outlined !text-[40px] text-border-dark">tune</span></div>
-              <div><p className="text-white font-bold">Signal Inspector</p><p className="text-text-secondary text-xs mt-2 max-w-[200px] mx-auto leading-relaxed">Select a pedal or the amplifier in the chain to adjust parameters.</p></div>
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-12 space-y-8 animate-in fade-in">
+              <div className="size-24 rounded-[2rem] bg-gradient-to-br from-surface-light to-background-dark flex items-center justify-center border border-border-dark shadow-2xl"><span className="material-symbols-outlined !text-[48px] text-primary/30">tune</span></div>
+              <div className="space-y-3">
+                <p className="text-xl font-black tracking-tight text-white/90">Rig Inspector</p>
+                <p className="text-sm text-text-secondary leading-relaxed">Select any component in your signal chain to fine-tune its parameters and tone.</p>
+              </div>
             </div>
           )}
         </aside>
       </div>
 
-      <footer className="bg-surface-dark border border-border-dark p-4 rounded-2xl flex items-center justify-end px-8 shadow-2xl gap-4">
-        <button onClick={() => setCurrentStep(1)} className="px-6 py-2 rounded-xl text-sm font-bold text-text-secondary hover:text-white transition-colors">Edit Info</button>
-        <button className="bg-surface-light hover:bg-border-dark px-6 py-2 rounded-xl text-sm font-bold border border-border-dark transition-all">Preview All</button>
-        <button onClick={handleSave} className="bg-primary hover:bg-blue-600 px-8 py-2 rounded-xl text-sm font-bold shadow-lg shadow-primary/20 transform hover:scale-105 active:scale-95 flex items-center gap-2"><span className="material-symbols-outlined !text-[18px]">save</span>Save Setup</button>
+      <footer className="bg-surface-dark/80 backdrop-blur-xl border border-border-dark p-4 rounded-[2.5rem] flex items-center justify-end px-10 shadow-2xl gap-5 relative">
+        <div className="mr-auto">
+          <button onClick={() => setCurrentStep(1)} className="flex items-center gap-2 px-6 py-3 rounded-2xl text-sm font-black text-text-secondary hover:text-white transition-all uppercase tracking-widest">
+            <span className="material-symbols-outlined !text-[18px]">arrow_back</span> Info
+          </button>
+        </div>
+        
+        <div className="relative">
+          <button 
+            onClick={() => setIsInstrumentMenuOpen(!isInstrumentMenuOpen)}
+            className="bg-surface-light hover:bg-border-dark px-6 py-3 rounded-2xl text-sm font-bold border border-border-dark transition-all flex items-center gap-3 min-w-[200px] shadow-lg"
+          >
+            <span className="material-symbols-outlined !text-[18px] text-primary">
+              {instruments.find(i => i.name === selectedInstrument)?.icon || 'music_note'}
+            </span>
+            <span className="truncate uppercase tracking-widest text-[10px] font-black">{selectedInstrument}</span>
+            <span className={`material-symbols-outlined transition-transform duration-300 ${isInstrumentMenuOpen ? 'rotate-180' : ''}`}>expand_more</span>
+          </button>
+          
+          {isInstrumentMenuOpen && (
+            <div className="absolute bottom-full mb-3 left-0 right-0 bg-surface-dark border border-border-dark rounded-2xl overflow-hidden shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-200 z-[100]">
+              <div className="p-2 space-y-1">
+                {instruments.map(inst => (
+                  <button
+                    key={inst.name}
+                    onClick={() => {
+                      setSelectedInstrument(inst.name);
+                      setIsInstrumentMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                      selectedInstrument === inst.name 
+                        ? 'bg-primary text-white shadow-lg' 
+                        : 'text-text-secondary hover:bg-white/5 hover:text-white'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined !text-[18px]">{inst.icon}</span>
+                    {inst.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <button className="bg-surface-light hover:bg-border-dark px-8 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest border border-border-dark transition-all shadow-lg active:scale-95">Preview</button>
+        <button 
+          onClick={handlePublish}
+          disabled={isPublishing}
+          className="bg-primary hover:bg-blue-600 px-10 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-xl shadow-primary/20 transition-all hover:scale-105 active:scale-95 flex items-center gap-2"
+        >
+          {isPublishing ? (
+            <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <span className="material-symbols-outlined !text-[20px]">publish</span>
+          )}
+          {isPublishing ? "Publishing..." : "Publish Rig"}
+        </button>
       </footer>
     </div>
   );

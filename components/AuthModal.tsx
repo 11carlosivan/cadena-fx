@@ -5,7 +5,7 @@ import { GoogleGenAI } from "@google/genai";
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLogin: (user: any, welcomeMsg: string) => void;
+  onLogin: (user: any, welcomeMsg: string, isRegistration: boolean) => void;
 }
 
 type AuthMode = 'login' | 'register';
@@ -46,8 +46,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin }) => {
         id: 'user-1',
         name: mode === 'login' ? (email.split('@')[0] || 'Musician') : `${firstName} ${lastName}`,
         avatar: `https://picsum.photos/100/100?random=${mode === 'login' ? 50 : 51}`,
-        bio: mode === 'login' ? 'Gear head and tone chaser.' : `Inspired by ${inspirations || 'great music'}.`
-      }, welcomeMsg);
+        banner: 'https://images.unsplash.com/photo-1514525253361-bee8a19740c1?q=80&w=2000&auto=format&fit=crop',
+        bio: mode === 'login' ? 'Gear head and tone chaser.' : `Inspired by ${inspirations || 'great music'}.`,
+        topGear: mode === 'register' ? ['', '', ''] : ['Stratocaster', 'JCM800', 'Tube Screamer'],
+        genres: mode === 'register' ? [] : ['Rock', 'Blues'],
+        experience: 'Intermediate (2-5 years)',
+        location: 'Earth'
+      }, welcomeMsg, mode === 'register');
       
       onClose();
     } catch (err) {

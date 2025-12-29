@@ -25,7 +25,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, user,
               </div>
               <h2 className="text-xl font-bold tracking-tight">ToneShare</h2>
             </div>
-            <nav className="hidden md:flex items-center gap-8">
+            <nav id="explore-nav" className="hidden md:flex items-center gap-8">
               {['Explore', 'My Setups', 'Community'].map((tab) => (
                 <button
                   key={tab}
@@ -50,6 +50,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, user,
             </div>
             <div className="flex items-center gap-3">
               <button 
+                id="new-setup-btn"
                 onClick={() => onTabChange('create')}
                 className="hidden sm:flex items-center gap-2 bg-primary hover:bg-blue-600 px-4 py-2 rounded-lg text-sm font-bold transition-all shadow-[0_0_15px_rgba(19,91,236,0.3)]"
               >
@@ -59,6 +60,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, user,
               
               {user ? (
                 <button 
+                  id="profile-nav"
                   onClick={() => onTabChange('profile')}
                   className={`size-9 rounded-full bg-cover bg-center ring-2 transition-all ${activeTab === 'profile' ? 'ring-primary shadow-[0_0_10px_rgba(19,91,236,0.5)]' : 'ring-border-dark'}`}
                   style={{ backgroundImage: `url(${user.avatar})` }}

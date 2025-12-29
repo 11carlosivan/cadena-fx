@@ -9,6 +9,7 @@ interface SetupDetailProps {
   onClone: () => void;
   onFavorite: () => void;
   onComment: (text: string) => void;
+  onProfileClick?: () => void;
 }
 
 const AmpNodeDisplay: React.FC<{ amp: Amplifier }> = ({ amp }) => (
@@ -22,7 +23,7 @@ const AmpNodeDisplay: React.FC<{ amp: Amplifier }> = ({ amp }) => (
   </div>
 );
 
-const SetupDetail: React.FC<SetupDetailProps> = ({ setup, onBack, onClone, onFavorite, onComment }) => {
+const SetupDetail: React.FC<SetupDetailProps> = ({ setup, onBack, onClone, onFavorite, onComment, onProfileClick }) => {
   const [commentText, setCommentText] = useState('');
   const [isLiked, setIsLiked] = useState(false);
 
@@ -51,10 +52,16 @@ const SetupDetail: React.FC<SetupDetailProps> = ({ setup, onBack, onClone, onFav
         <div className="space-y-4">
           <h1 className="text-4xl md:text-6xl font-black tracking-tight">{setup.title}</h1>
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-text-secondary">Created by</span>
-              <button className="text-primary font-bold hover:underline">{setup.creator}</button>
-            </div>
+            <button 
+              onClick={onProfileClick}
+              className="flex items-center gap-3 group/creator"
+            >
+              <div className="size-8 rounded-full bg-cover bg-center ring-2 ring-border-dark group-hover/creator:ring-primary transition-all" style={{ backgroundImage: `url(${setup.creatorAvatar})` }} />
+              <div className="flex items-center gap-2">
+                <span className="text-text-secondary text-sm">Created by</span>
+                <span className="text-primary font-bold hover:underline">{setup.creator}</span>
+              </div>
+            </button>
             <div className="size-1 rounded-full bg-border-dark" />
             <span className="text-xs text-text-secondary">Updated {setup.updatedAt}</span>
           </div>
