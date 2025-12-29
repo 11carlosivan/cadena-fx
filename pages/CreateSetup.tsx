@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { MOCK_PEDALS, MOCK_AMPLIFIERS } from '../constants';
 import { Pedal, PedalType, Instrument, Amplifier, User, Setup } from '../types';
 import PedalNode from '../components/PedalNode';
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 
 interface HistoryState {
   chain: Pedal[];
@@ -216,6 +216,13 @@ interface CreateSetupProps {
   onProfileClick?: () => void;
 }
 
+interface SongSearchResult {
+  trackName: string;
+  artistName: string;
+  artworkUrl100: string;
+  primaryGenreName: string;
+}
+
 const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileClick }) => {
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
   const [activeChain, setActiveChain] = useState<Pedal[]>([MOCK_PEDALS[0]]);
@@ -234,8 +241,15 @@ const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileCli
   const [selectedInstrument, setSelectedInstrument] = useState<Instrument>('Electric Guitar');
   const [songTitle, setSongTitle] = useState('');
   const [artistName, setArtistName] = useState('');
+  const [coverImage, setCoverImage] = useState<string>('');
   const [isPublishing, setIsPublishing] = useState(false);
   const [isInstrumentMenuOpen, setIsInstrumentMenuOpen] = useState(false);
+
+  // Song Search States
+  const [songSearchQuery, setSongSearchQuery] = useState('');
+  const [songSearchResults, setSongSearchResults] = useState<SongSearchResult[]>([]);
+  const [isSearchingSongs, setIsSearchingSongs] = useState(false);
+  const [aiToneInsight, setAiToneInsight] = useState<string | null>(null);
 
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     'Dynamics': true, 'Drive': true, 'Modulation': true, 'Delay': false, 'Reverb': false
@@ -397,7 +411,7 @@ const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileCli
       instrument: selectedInstrument,
       genre: "Modern",
       tags: [selectedInstrument.split(' ')[0], "New"],
-      coverImage: `https://picsum.photos/800/600?random=${Math.floor(Math.random() * 100)}`,
+      coverImage: coverImage || `https://picsum.photos/800/600?random=${Math.floor(Math.random() * 100)}`,
       chain: activeChain,
       amplifier: selectedAmp,
       updatedAt: "just now"
@@ -406,7 +420,42 @@ const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileCli
     setTimeout(() => {
       onPublish(newSetup);
       setIsPublishing(false);
-    }, 800);
+    }, 1200);
+  };
+
+  const handleSongSearch = async (query: string) => {
+    if (!query.trim()) return;
+    setIsSearchingSongs(true);
+    try {
+      const response = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=5`);
+      const data = await response.json();
+      setSongSearchResults(data.results || []);
+    } catch (error) {
+      console.error('Song search failed', error);
+    } finally {
+      setIsSearchingSongs(false);
+    }
+  };
+
+  const selectSong = async (song: SongSearchResult) => {
+    setSongTitle(song.trackName);
+    setArtistName(song.artistName);
+    setCoverImage(song.artworkUrl100.replace('100x100bb', '1200x630bb'));
+    setSongSearchResults([]);
+    setSongSearchQuery('');
+    
+    // Fetch AI Tone Insight for the selected song
+    setAiToneInsight("Analyzing song dynamics...");
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Analyze the tone for the song "${song.trackName}" by "${song.artistName}". Briefly describe the essential guitar/bass tone and suggest an initial signal chain category (e.g., 'Clean with Chorus', 'High Gain Fuzz').`
+      });
+      setAiToneInsight(response.text || "Interesting track! Ready to build.");
+    } catch (err) {
+      setAiToneInsight(null);
+    }
   };
 
   const filteredPedals = useMemo(() => 
@@ -444,8 +493,9 @@ const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileCli
   if (currentStep === 1) {
     return (
       <div className="h-full flex flex-col items-center justify-center p-4 animate-in fade-in zoom-in-95">
-        <div className="max-w-3xl w-full bg-surface-dark border border-border-dark rounded-[3rem] p-12 shadow-2xl space-y-10 relative overflow-hidden">
+        <div className="max-w-4xl w-full bg-surface-dark border border-border-dark rounded-[3.5rem] p-12 shadow-2xl space-y-12 relative overflow-hidden">
           <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-primary/20 via-primary to-primary/20" />
+          
           <div className="text-center space-y-4">
             <div className="bg-primary/10 text-primary border border-primary/20 inline-flex items-center gap-2 px-4 py-1.5 rounded-full font-black text-[10px] uppercase tracking-widest">
               <span className="material-symbols-outlined !text-[16px]">music_note</span> Setup Step 1
@@ -453,36 +503,106 @@ const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileCli
             <h2 className="text-5xl font-black tracking-tighter">Your Tone Story</h2>
             <p className="text-text-secondary text-lg">Define the track that inspired this signal chain.</p>
           </div>
-          <div className="grid grid-cols-2 gap-8">
-            <div className="col-span-2 space-y-2">
-              <label className="text-[10px] font-black text-text-secondary uppercase tracking-[0.3em]">Song Title</label>
-              <input value={songTitle} onChange={e => setSongTitle(e.target.value)} placeholder="e.g. Starla" className="w-full bg-background-dark border-border-dark rounded-2xl p-4 text-xl font-bold focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all" />
+
+          <div className="space-y-10">
+            {/* Song Search Section */}
+            <div className="space-y-4 relative">
+              <label className="text-[10px] font-black text-text-secondary uppercase tracking-[0.3em] ml-2">Quick Search & Auto-Fill</label>
+              <div className="relative group">
+                <span className="material-symbols-outlined absolute left-6 top-1/2 -translate-y-1/2 text-primary !text-[24px]">search</span>
+                <input 
+                  value={songSearchQuery} 
+                  onChange={e => {
+                    setSongSearchQuery(e.target.value);
+                    if (e.target.value.length > 2) handleSongSearch(e.target.value);
+                  }}
+                  onKeyDown={e => e.key === 'Enter' && handleSongSearch(songSearchQuery)}
+                  placeholder="Search for a song or artist..." 
+                  className="w-full bg-background-dark/50 border-border-dark rounded-[2rem] py-6 pl-16 pr-6 text-xl font-bold focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all placeholder:text-text-secondary/40 shadow-inner"
+                />
+                {isSearchingSongs && (
+                  <div className="absolute right-6 top-1/2 -translate-y-1/2">
+                    <div className="size-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
+              </div>
+
+              {/* Search Results Dropdown */}
+              {songSearchResults.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-surface-light border border-border-dark rounded-3xl shadow-2xl z-50 overflow-hidden animate-in slide-in-from-top-4">
+                  {songSearchResults.map((song, i) => (
+                    <button 
+                      key={i} 
+                      onClick={() => selectSong(song)}
+                      className="w-full flex items-center gap-4 p-4 hover:bg-primary/10 transition-colors border-b border-border-dark last:border-none text-left"
+                    >
+                      <img src={song.artworkUrl100} className="size-12 rounded-xl object-cover shadow-lg" alt="" />
+                      <div>
+                        <p className="font-black text-sm text-white">{song.trackName}</p>
+                        <p className="text-xs text-text-secondary">{song.artistName} • {song.primaryGenreName}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-text-secondary uppercase tracking-[0.3em]">Artist</label>
-              <input value={artistName} onChange={e => setArtistName(e.target.value)} placeholder="The Smashing Pumpkins" className="w-full bg-background-dark border-border-dark rounded-2xl p-4 font-bold focus:border-primary transition-all" />
+
+            <div className="grid grid-cols-2 gap-8">
+              <div className="col-span-2 md:col-span-1 space-y-2">
+                <label className="text-[10px] font-black text-text-secondary uppercase tracking-[0.3em] ml-2">Song Title</label>
+                <input value={songTitle} onChange={e => setSongTitle(e.target.value)} placeholder="e.g. Starla" className="w-full bg-background-dark border-border-dark rounded-2xl p-4 text-lg font-bold focus:border-primary transition-all" />
+              </div>
+              <div className="col-span-2 md:col-span-1 space-y-2">
+                <label className="text-[10px] font-black text-text-secondary uppercase tracking-[0.3em] ml-2">Artist</label>
+                <input value={artistName} onChange={e => setArtistName(e.target.value)} placeholder="The Smashing Pumpkins" className="w-full bg-background-dark border-border-dark rounded-2xl p-4 text-lg font-bold focus:border-primary transition-all" />
+              </div>
+              <div className="col-span-2 space-y-2">
+                <label className="text-[10px] font-black text-text-secondary uppercase tracking-[0.3em] ml-2">Instrument</label>
+                <div className="flex flex-wrap gap-2">
+                  {instruments.map(inst => (
+                    <button
+                      key={inst.name}
+                      onClick={() => setSelectedInstrument(inst.name)}
+                      className={`flex-1 min-w-[140px] flex items-center justify-center gap-3 p-4 rounded-2xl border transition-all font-bold text-sm ${
+                        selectedInstrument === inst.name 
+                          ? 'bg-primary border-primary text-white shadow-lg shadow-primary/20' 
+                          : 'bg-background-dark border-border-dark text-text-secondary hover:bg-surface-light hover:text-white'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined !text-[20px]">{inst.icon}</span>
+                      {inst.name.split(' ')[0]}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-text-secondary uppercase tracking-[0.3em]">Instrument</label>
-              <select value={selectedInstrument} onChange={e => setSelectedInstrument(e.target.value as any)} className="w-full bg-background-dark border-border-dark rounded-2xl p-4 font-bold appearance-none cursor-pointer">
-                {instruments.map(inst => (
-                  <option key={inst.name} value={inst.name}>{inst.name}</option>
-                ))}
-              </select>
-            </div>
+
+            {/* AI Tone Insights from Search */}
+            {aiToneInsight && (
+              <div className="p-6 bg-primary/5 rounded-3xl border border-primary/20 flex gap-4 animate-in fade-in slide-in-from-bottom-2">
+                <div className="size-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                  <span className="material-symbols-outlined !text-[28px]">smart_toy</span>
+                </div>
+                <div>
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-primary mb-1">Tone Analysis Insight</h4>
+                  <p className="text-sm text-text-secondary leading-relaxed font-medium italic">"{aiToneInsight}"</p>
+                </div>
+              </div>
+            )}
           </div>
+
           <div className="flex justify-between items-center pt-8 border-t border-border-dark/50">
             <button 
               onClick={onProfileClick}
               className="flex items-center gap-3 group/user"
             >
-              <div className="size-10 rounded-full bg-cover bg-center ring-2 ring-border-dark group-hover/user:ring-primary transition-all" style={{ backgroundImage: `url(${user.avatar})` }} />
+              <div className="size-10 rounded-full bg-cover bg-center ring-2 ring-border-dark group-hover/user:ring-primary transition-all shadow-xl" style={{ backgroundImage: `url(${user.avatar})` }} />
               <div className="text-left">
                 <p className="text-[10px] font-black uppercase text-text-secondary tracking-widest">Creating as</p>
                 <p className="text-sm font-bold group-hover/user:text-primary transition-colors">{user.name}</p>
               </div>
             </button>
-            <button disabled={!songTitle || !artistName} onClick={() => setCurrentStep(2)} className="bg-primary hover:bg-blue-600 disabled:opacity-20 px-12 py-5 rounded-3xl font-black text-xl flex items-center gap-3 transition-all hover:scale-105 shadow-xl shadow-primary/30">
+            <button disabled={!songTitle || !artistName} onClick={() => setCurrentStep(2)} className="bg-primary hover:bg-blue-600 disabled:opacity-20 px-12 py-5 rounded-3xl font-black text-xl flex items-center gap-3 transition-all hover:scale-105 shadow-xl shadow-primary/30 active:scale-95">
               Enter Pedalboard <span className="material-symbols-outlined">arrow_forward</span>
             </button>
           </div>
@@ -495,12 +615,15 @@ const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileCli
     <div className="h-[calc(100vh-140px)] flex flex-col gap-6 animate-in slide-in-from-right duration-500">
       <div className="bg-surface-dark/40 backdrop-blur-xl border border-border-dark rounded-2xl p-4 flex items-center justify-between px-8 shadow-xl">
         <div className="flex items-center gap-6">
-          <button onClick={() => setCurrentStep(1)} className="size-12 rounded-2xl bg-background-dark border border-border-dark flex items-center justify-center text-text-secondary hover:text-white transition-all"><span className="material-symbols-outlined">edit_note</span></button>
-          <div>
-            <div className="flex items-center gap-3">
-              <h2 className="font-black text-2xl tracking-tight">{songTitle}</h2>
-              <span className="text-text-secondary/50 font-black">/</span>
-              <p className="text-text-secondary font-bold text-lg">{artistName}</p>
+          <button onClick={() => setCurrentStep(1)} className="size-12 rounded-2xl bg-background-dark border border-border-dark flex items-center justify-center text-text-secondary hover:text-white transition-all shadow-lg active:scale-95"><span className="material-symbols-outlined">edit_note</span></button>
+          <div className="flex items-center gap-4">
+            {coverImage && <img src={coverImage} className="size-10 rounded-lg object-cover shadow-lg border border-white/5" alt="" />}
+            <div>
+              <div className="flex items-center gap-3">
+                <h2 className="font-black text-2xl tracking-tight">{songTitle}</h2>
+                <span className="text-text-secondary/50 font-black">/</span>
+                <p className="text-text-secondary font-bold text-lg">{artistName}</p>
+              </div>
             </div>
           </div>
         </div>
@@ -517,12 +640,12 @@ const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileCli
         </button>
 
         <div className="flex gap-4">
-           <button onClick={undo} disabled={historyIndex <= 0} className="size-11 rounded-xl bg-background-dark/50 border border-border-dark flex items-center justify-center disabled:opacity-20 hover:text-primary transition-colors"><span className="material-symbols-outlined">undo</span></button>
-           <button onClick={redo} disabled={historyIndex >= history.length - 1} className="size-11 rounded-xl bg-background-dark/50 border border-border-dark flex items-center justify-center disabled:opacity-20 hover:text-primary transition-colors"><span className="material-symbols-outlined">redo</span></button>
-           <button onClick={clearChain} className="bg-red-500/10 border border-red-500/20 text-red-500 px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2 hover:bg-red-500/20 transition-all">
+           <button onClick={undo} disabled={historyIndex <= 0} className="size-11 rounded-xl bg-background-dark/50 border border-border-dark flex items-center justify-center disabled:opacity-20 hover:text-primary transition-colors shadow-lg"><span className="material-symbols-outlined">undo</span></button>
+           <button onClick={redo} disabled={historyIndex >= history.length - 1} className="size-11 rounded-xl bg-background-dark/50 border border-border-dark flex items-center justify-center disabled:opacity-20 hover:text-primary transition-colors shadow-lg"><span className="material-symbols-outlined">redo</span></button>
+           <button onClick={clearChain} className="bg-red-500/10 border border-red-500/20 text-red-500 px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2 hover:bg-red-500/20 transition-all shadow-lg active:scale-95">
              <span className="material-symbols-outlined !text-[18px]">delete_sweep</span> Clear
            </button>
-           <button onClick={autoArrangeChain} className="bg-primary/10 border border-primary/20 text-primary px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2 hover:bg-primary/20 transition-all">
+           <button onClick={autoArrangeChain} className="bg-primary/10 border border-primary/20 text-primary px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2 hover:bg-primary/20 transition-all shadow-lg active:scale-95">
              <span className="material-symbols-outlined !text-[18px]">magic_button</span> Auto-Order
            </button>
         </div>
@@ -555,7 +678,7 @@ const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileCli
                     {isExp && (
                       <div className="space-y-2 animate-in slide-in-from-top-2">
                         {categoryPedals.map(p => (
-                          <button key={p.id} onClick={() => addPedal(p)} className="w-full flex items-center gap-3 p-2.5 rounded-2xl bg-surface-light/5 hover:bg-primary/10 border border-transparent hover:border-primary/30 transition-all group">
+                          <button key={p.id} onClick={() => addPedal(p)} className="w-full flex items-center gap-3 p-2.5 rounded-2xl bg-surface-light/5 hover:bg-primary/10 border border-transparent hover:border-primary/30 transition-all group shadow-sm">
                             <div className={`size-10 rounded-xl bg-gradient-to-br ${p.color} flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform`}><span className="material-symbols-outlined text-white !text-[20px]">{p.icon}</span></div>
                             <div className="text-left"><p className="text-[11px] font-bold">{p.name}</p><p className="text-[8px] text-text-secondary uppercase">{p.brand}</p></div>
                           </button>
@@ -567,7 +690,7 @@ const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileCli
               })
             ) : (
               filteredAmps.map(amp => (
-                <button key={amp.id} onClick={() => commitChange(activeChain, amp)} className={`w-full flex items-center gap-4 p-4 rounded-3xl border transition-all ${selectedAmp.id === amp.id ? 'bg-primary/10 border-primary/50' : 'bg-surface-light/10 border-transparent hover:bg-white/5'}`}>
+                <button key={amp.id} onClick={() => commitChange(activeChain, amp)} className={`w-full flex items-center gap-4 p-4 rounded-3xl border transition-all shadow-sm ${selectedAmp.id === amp.id ? 'bg-primary/10 border-primary/50' : 'bg-surface-light/10 border-transparent hover:bg-white/5'}`}>
                   <div className={`size-14 rounded-2xl bg-gradient-to-br ${amp.color} flex items-center justify-center shadow-xl`}><span className="material-symbols-outlined text-white !text-[28px]">speaker</span></div>
                   <div className="text-left"><p className="text-xs font-black tracking-tight">{amp.name}</p><p className="text-[9px] text-text-secondary uppercase">{amp.brand}</p></div>
                 </button>
@@ -617,7 +740,7 @@ const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileCli
                </div>
             </div>
             <div className="flex gap-2">
-              {aiSuggestion && !aiAnalyzing && <button onClick={() => {setAiSuggestion(''); setAiAnalyzing(false);}} className="px-5 py-2.5 rounded-xl text-xs font-bold text-text-secondary hover:text-white transition-all">Dismiss</button>}
+              {aiSuggestion && !aiAnalyzing && <button onClick={() => {setAiSuggestion(''); setAiAnalyzing(false);}} className="px-5 py-2.5 rounded-xl text-xs font-bold text-text-secondary hover:text-white transition-all shadow-md active:scale-95">Dismiss</button>}
               <button onClick={handleAiToneMatch} disabled={aiAnalyzing} className="bg-primary hover:bg-blue-600 disabled:opacity-50 px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-primary/20 transition-all active:scale-95">
                 {aiAnalyzing ? "Processing..." : "Analyze Setup"}
               </button>
@@ -628,7 +751,7 @@ const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileCli
         <aside className="w-80 bg-surface-dark border border-border-dark rounded-3xl flex flex-col shrink-0 overflow-hidden shadow-2xl">
           {(selectedPedal || isAmpSelected) ? (
             <>
-              <div className="p-6 border-b border-border-dark bg-surface-light/20 flex flex-col gap-4">
+              <div className="p-6 border-b border-border-dark bg-surface-light/20 flex flex-col gap-4 shadow-sm">
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-4">
                     <div className={`size-10 rounded-xl bg-gradient-to-br ${isAmpSelected ? selectedAmp.color : selectedPedal!.color} flex items-center justify-center shadow-lg`}><span className="material-symbols-outlined text-white !text-[24px]">{isAmpSelected ? 'speaker' : selectedPedal!.icon}</span></div>
@@ -642,18 +765,18 @@ const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileCli
                       <button 
                         disabled={selectedPedalIndex === 0}
                         onClick={() => movePedal(selectedPedalIndex!, 'left')}
-                        className="size-10 rounded-xl bg-surface-light border border-border-dark flex items-center justify-center hover:bg-white/5 disabled:opacity-20 transition-all"
+                        className="size-10 rounded-xl bg-surface-light border border-border-dark flex items-center justify-center hover:bg-white/5 disabled:opacity-20 transition-all shadow-sm active:scale-95"
                       >
                         <span className="material-symbols-outlined !text-[20px]">arrow_back</span>
                       </button>
                       <button 
                         disabled={selectedPedalIndex === activeChain.length - 1}
                         onClick={() => movePedal(selectedPedalIndex!, 'right')}
-                        className="size-10 rounded-xl bg-surface-light border border-border-dark flex items-center justify-center hover:bg-white/5 disabled:opacity-20 transition-all"
+                        className="size-10 rounded-xl bg-surface-light border border-border-dark flex items-center justify-center hover:bg-white/5 disabled:opacity-20 transition-all shadow-sm active:scale-95"
                       >
                         <span className="material-symbols-outlined !text-[20px]">arrow_forward</span>
                       </button>
-                      <button onClick={() => removePedal(selectedPedalIndex!)} className="size-10 rounded-xl bg-red-500/10 text-red-500 flex items-center justify-center hover:bg-red-500/20 transition-all"><span className="material-symbols-outlined !text-[20px]">delete</span></button>
+                      <button onClick={() => removePedal(selectedPedalIndex!)} className="size-10 rounded-xl bg-red-500/10 text-red-500 flex items-center justify-center hover:bg-red-500/20 transition-all shadow-sm active:scale-95"><span className="material-symbols-outlined !text-[20px]">delete</span></button>
                     </div>
                   )}
                 </div>
@@ -712,7 +835,7 @@ const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileCli
                         <label className="text-[10px] font-black uppercase tracking-[0.2em] text-text-secondary ml-1">Preamp Channel</label>
                         <div className="grid grid-cols-2 gap-2 p-1.5 bg-background-dark/50 rounded-2xl border border-white/5">
                           {selectedAmp.channels.map(c => (
-                            <button key={c} onClick={() => updateAmpChannel(c)} className={`px-3 py-2.5 rounded-xl text-[10px] font-bold uppercase transition-all flex items-center gap-2 ${selectedAmp.activeChannel === c ? 'bg-primary text-white shadow-xl' : 'text-text-secondary hover:bg-white/5'}`}>
+                            <button key={c} onClick={() => updateAmpChannel(c)} className={`px-3 py-2.5 rounded-xl text-[10px] font-bold uppercase transition-all flex items-center gap-2 shadow-sm ${selectedAmp.activeChannel === c ? 'bg-primary text-white shadow-xl' : 'text-text-secondary hover:bg-white/5'}`}>
                               <div className={`size-1.5 rounded-full ${selectedAmp.activeChannel === c ? 'bg-white shadow-[0_0_5px_white]' : 'bg-gray-700'}`} />
                               {c}
                             </button>
@@ -777,7 +900,7 @@ const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileCli
 
       <footer className="bg-surface-dark/80 backdrop-blur-xl border border-border-dark p-4 rounded-[2.5rem] flex items-center justify-end px-10 shadow-2xl gap-5 relative">
         <div className="mr-auto">
-          <button onClick={() => setCurrentStep(1)} className="flex items-center gap-2 px-6 py-3 rounded-2xl text-sm font-black text-text-secondary hover:text-white transition-all uppercase tracking-widest">
+          <button onClick={() => setCurrentStep(1)} className="flex items-center gap-2 px-6 py-3 rounded-2xl text-sm font-black text-text-secondary hover:text-white transition-all uppercase tracking-widest active:scale-95">
             <span className="material-symbols-outlined !text-[18px]">arrow_back</span> Info
           </button>
         </div>
@@ -785,7 +908,7 @@ const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileCli
         <div className="relative">
           <button 
             onClick={() => setIsInstrumentMenuOpen(!isInstrumentMenuOpen)}
-            className="bg-surface-light hover:bg-border-dark px-6 py-3 rounded-2xl text-sm font-bold border border-border-dark transition-all flex items-center gap-3 min-w-[200px] shadow-lg"
+            className="bg-surface-light hover:bg-border-dark px-6 py-3 rounded-2xl text-sm font-bold border border-border-dark transition-all flex items-center gap-3 min-w-[200px] shadow-lg active:scale-95"
           >
             <span className="material-symbols-outlined !text-[18px] text-primary">
               {instruments.find(i => i.name === selectedInstrument)?.icon || 'music_note'}
@@ -830,7 +953,7 @@ const CreateSetup: React.FC<CreateSetupProps> = ({ onPublish, user, onProfileCli
           ) : (
             <span className="material-symbols-outlined !text-[20px]">publish</span>
           )}
-          {isPublishing ? "Publishing..." : "Publish Rig"}
+          {isPublishing ? "Saving Rig..." : "Publish Rig"}
         </button>
       </footer>
     </div>
