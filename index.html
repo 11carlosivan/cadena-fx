@@ -67,8 +67,12 @@
   }
 }
 </script>
+<!-- Cargador para permitir TSX/JSX en el navegador sin build previo -->
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
     <div id="root"></div>
+    <!-- Punto de entrada de la aplicación -->
+    <script type="text/babel" data-type="module" src="index.tsx"></script>
 </body>
 </html>

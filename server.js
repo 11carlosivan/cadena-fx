@@ -42,8 +42,7 @@ app.post('/api/install', async (req, res) => {
             multipleStatements: true
         });
 
-        // Crear base de datos si no existe (opcional, usualmente cPanel ya la da)
-        await tempConn.query(`CREATE DATABASE IF NOT EXISTS \`${dbConfig.database}\``);
+        // Asegurarse de usar la DB correcta
         await tempConn.query(`USE \`${dbConfig.database}\``);
         
         // Ejecutar esquema
@@ -59,6 +58,7 @@ app.post('/api/install', async (req, res) => {
 // API Routes
 app.get('/api/setups', async (req, res) => {
     try {
+        if (!pool) throw new Error("Database not initialized");
         const [rows] = await pool.query(`
             SELECT s.*, u.name as creator, u.avatar as creatorAvatar 
             FROM setups s 
@@ -84,11 +84,11 @@ app.post('/api/setups', async (req, res) => {
     }
 });
 
-// Servir la aplicación React (Build)
-app.use(express.static(path.join(__dirname, 'dist')));
+// IMPORTANTE: Servir archivos desde la raíz porque no hay carpeta /dist
+app.use(express.static(__dirname));
 
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 const PORT = process.env.PORT || 3000;
