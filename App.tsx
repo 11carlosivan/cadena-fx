@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout.tsx';
 import Home from './pages/Home.tsx';
@@ -20,15 +19,22 @@ const App: React.FC = () => {
 
   const fetchSetups = async () => {
     try {
+      // Intentamos llamar a la API
       const res = await fetch('/api/setups');
-      if (res.ok) {
+      if (res.status === 503 || res.status === 404) {
+        // El servidor responde que necesita instalación o la ruta no existe (servidor no configurado)
+        setNeedsInstallation(true);
+      } else if (res.ok) {
         const data = await res.json();
         setCommunitySetups(data);
         setNeedsInstallation(false);
       } else {
+        // Cualquier otro error (ej: 500) asumimos que es por falta de tablas
         setNeedsInstallation(true);
       }
     } catch (err) {
+      // Si el fetch falla (error de red o servidor apagado)
+      console.error("Connection error:", err);
       setNeedsInstallation(true);
     }
   };
@@ -40,16 +46,22 @@ const App: React.FC = () => {
   const handleRunInstallation = async () => {
     setIsInstalling(true);
     try {
-      const res = await fetch('/api/install', { method: 'POST' });
+      const res = await fetch('/api/install', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
       const data = await res.json();
       if (data.success) {
         showNotification("Database installed successfully! Reloading...", "success");
-        setTimeout(() => window.location.reload(), 2000);
+        setTimeout(() => {
+          setNeedsInstallation(false);
+          window.location.reload();
+        }, 2000);
       } else {
-        showNotification("Installation failed: " + data.error, "info");
+        showNotification("Installation failed: " + (data.error || "Unknown error"), "info");
       }
     } catch (err) {
-      showNotification("Network error during installation", "info");
+      showNotification("Network error during installation. Is the server running?", "info");
     } finally {
       setIsInstalling(false);
     }
@@ -95,7 +107,15 @@ const App: React.FC = () => {
           </div>
           <div className="space-y-2">
             <h1 className="text-3xl font-black tracking-tight">System Setup</h1>
-            <p className="text-text-secondary text-sm">ToneShare is ready. We need to initialize the database.</p>
+            <p className="text-text-secondary text-sm">ToneShare is ready. We need to initialize the database tables.</p>
+          </div>
+          <div className="bg-background-dark/50 p-4 rounded-2xl text-left space-y-2">
+             <p className="text-[10px] font-black uppercase tracking-widest text-primary">Pre-flight Checklist:</p>
+             <ul className="text-[11px] text-text-secondary space-y-1">
+               <li className="flex items-center gap-2"><span className="material-symbols-outlined !text-[14px] text-green-500">check_circle</span> MySQL Database Created in cPanel</li>
+               <li className="flex items-center gap-2"><span className="material-symbols-outlined !text-[14px] text-green-500">check_circle</span> .env Variables configured</li>
+               <li className="flex items-center gap-2"><span className="material-symbols-outlined !text-[14px] text-green-500">check_circle</span> server.js is running</li>
+             </ul>
           </div>
           <button 
             onClick={handleRunInstallation}
