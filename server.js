@@ -101,9 +101,14 @@ app.post('/api/setups', async (req, res) => {
     }
 });
 
-// Tipos MIME para soporte de módulos en el navegador (.tsx, .ts)
-express.static.mime.define({'application/javascript': ['ts', 'tsx']});
-app.use(express.static(__dirname));
+// Servir archivos estáticos con tipos MIME correctos para TSX/TS
+app.use(express.static(__dirname, {
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.ts') || filePath.endsWith('.tsx')) {
+            res.setHeader('Content-Type', 'application/javascript');
+        }
+    }
+}));
 
 app.get('*', (req, res) => {
     if (!req.url.startsWith('/api')) {
