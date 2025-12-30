@@ -110,7 +110,8 @@ app.use(express.static(__dirname, {
     }
 }));
 
-app.get('*', (req, res) => {
+// Express 5 requiere '/*' o un parámetro con nombre para rutas comodín
+app.get('/*', (req, res) => {
     if (!req.url.startsWith('/api')) {
         res.sendFile(path.join(__dirname, 'index.html'));
     } else {
