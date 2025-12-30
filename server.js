@@ -8,7 +8,7 @@ require('dotenv').config();
 const app = express();
 app.use(express.json());
 
-// Configuración de la base de datos (Usar variables de entorno de BanaHosting)
+// Configuración de la base de datos
 const dbConfig = {
     host: process.env.DB_HOST || 'localhost',
     user: process.env.DB_USER,
@@ -19,11 +19,15 @@ const dbConfig = {
 
 let pool;
 
-// Inicializar conexión
 async function initDb() {
     try {
+        if (!dbConfig.user || !dbConfig.database) {
+            console.warn('Database credentials missing. Waiting for installation...');
+            return;
+        }
         pool = mysql.createPool(dbConfig);
-        console.log('Database connected');
+        const [rows] = await pool.query('SELECT 1');
+        console.log('Successfully connected to MySQL database');
     } catch (err) {
         console.error('Database connection failed:', err.message);
     }
@@ -33,6 +37,7 @@ async function initDb() {
 app.post('/api/install', async (req, res) => {
     try {
         const sqlPath = path.join(__dirname, 'setup_db.sql');
+        if (!fs.existsSync(sqlPath)) throw new Error("Archivo setup_db.sql no encontrado en el servidor");
         const sql = fs.readFileSync(sqlPath, 'utf8');
         
         const tempConn = await mysql.createConnection({
@@ -42,15 +47,17 @@ app.post('/api/install', async (req, res) => {
             multipleStatements: true
         });
 
-        // Asegurarse de usar la DB correcta
+        console.log('Running installation script...');
         await tempConn.query(`USE \`${dbConfig.database}\``);
-        
-        // Ejecutar esquema
         await tempConn.query(sql);
         await tempConn.end();
         
-        res.json({ success: true, message: 'Database installed successfully' });
+        // Re-inicializar el pool después de crear las tablas
+        await initDb();
+        
+        res.json({ success: true, message: 'Tablas creadas correctamente' });
     } catch (err) {
+        console.error('Error de instalación:', err);
         res.status(500).json({ success: false, error: err.message });
     }
 });
@@ -58,11 +65,11 @@ app.post('/api/install', async (req, res) => {
 // API Routes
 app.get('/api/setups', async (req, res) => {
     try {
-        if (!pool) throw new Error("Database not initialized");
+        if (!pool) throw new Error("Base de datos no conectada");
         const [rows] = await pool.query(`
             SELECT s.*, u.name as creator, u.avatar as creatorAvatar 
             FROM setups s 
-            JOIN users u ON s.creator_id = u.id 
+            LEFT JOIN users u ON s.creator_id = u.id 
             ORDER BY s.updated_at DESC
         `);
         res.json(rows);
@@ -84,7 +91,9 @@ app.post('/api/setups', async (req, res) => {
     }
 });
 
-// IMPORTANTE: Servir archivos desde la raíz porque no hay carpeta /dist
+// Tipos MIME para soporte de módulos en el navegador
+express.static.mime.define({'application/javascript': ['ts', 'tsx']});
+
 app.use(express.static(__dirname));
 
 app.get('*', (req, res) => {
