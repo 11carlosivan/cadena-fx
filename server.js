@@ -79,7 +79,7 @@ app.get('/api/setups', async (req, res) => {
             SELECT s.*, u.name as creator, u.avatar as creatorAvatar 
             FROM setups s 
             LEFT JOIN users u ON s.creator_id = u.id 
-            ORDER BY s.updated_at DESC
+            ORDER BY s.created_at DESC
         `);
         res.json(rows);
     } catch (err) {
@@ -110,8 +110,8 @@ app.use(express.static(__dirname, {
     }
 }));
 
-// Express 5 requiere '/*' o un parámetro con nombre para rutas comodín
-app.get('/*', (req, res) => {
+// En Express 5, el comodín debe tener un nombre de parámetro (ej: :any*)
+app.get('/:any*', (req, res) => {
     if (!req.url.startsWith('/api')) {
         res.sendFile(path.join(__dirname, 'index.html'));
     } else {
